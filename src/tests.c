@@ -7811,4 +7811,6 @@ static struct test_entry tests[] = {
     {NULL, NULL}
 };
 
+#define NUM_TESTS (sizeof(tests) / sizeof(tests[0]) - 1)
+
 #endif /* SECP256K1_TESTS_C */

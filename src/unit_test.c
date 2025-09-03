@@ -32,16 +32,26 @@
 #define MAX_ARGS 20
 #define MAX_SUBPROCESSES 16
 
+struct Targets {
+    /* Target tests indexes */
+    int slots[NUM_TESTS];
+    /* Next available slot */
+    int size;
+};
+
 /* --- Command-line args --- */
 struct Args {
     /* 0 => sequential; 1..MAX_SUBPROCESSES => parallel workers */
     int num_processes;
     /* Specific RNG seed */
     const char* custom_seed;
+    /* Target tests indexes */
+    struct Targets targets;
 };
 
 static int parse_jobs_count(const char* key, const char* value, struct Args* out);
 static int parse_iterations(const char* arg);
+static int parse_target(const char* value, struct Args* out);
 
 /*
  *   Main entry point for handling command-line arguments.
@@ -67,6 +77,10 @@ static int parse_arg(const char* key, const char* value, struct Args* out) {
         out->custom_seed = (!value || strcmp(value, "NULL") == 0) ? NULL : value;
         return 0;
     }
+    /* Test target */
+    if (strcmp(key, "t") == 0 || strcmp(key, "target") == 0) {
+        return parse_target(value, out);
+    }
 
     /* Unknown key: report just so typos don’t silently pass. */
     printf("Unknown argument '-%s=%s'\n", key, value);
@@ -81,6 +95,7 @@ static void help(void) {
     printf("    -j=<num>, -jobs=<num>           Number of parallel worker processes (default: 0 = sequential)\n");
     printf("    -iter=<num>, -iterations=<num>  Number of iterations for each test (default: 64)\n");
     printf("    -seed=<hex>                     Set a specific RNG seed (default: random)\n");
+    printf("    -target=<test name>, -t=<name>  Run a specific test (can be provided multiple times)\n");
     printf("\n");
     printf("Notes:\n");
     printf("    - All arguments must be provided in the form '-key=value'.\n");
@@ -119,6 +134,25 @@ static int parse_iterations(const char* arg) {
         return -1;
     }
     printf("test count = %i\n", COUNT);
+    return 0;
+}
+
+static int parse_target(const char* value, struct Args* out) {
+    int idx_test;
+    if (out->targets.size > (int) NUM_TESTS) {
+        printf("Too many -target arguments (max: %d)\n", (int) NUM_TESTS);
+        return -1;
+    }
+    /* Find test index in the registry */
+    for (idx_test = 0; idx_test < (int) NUM_TESTS; idx_test++) {
+        if (strcmp(value, tests[idx_test].name) == 0) break;
+    }
+    if (idx_test == (int) NUM_TESTS) {
+        printf("Target test not found '%s'\n", value);
+        return -1;
+    }
+    out->targets.slots[out->targets.size] = idx_test;
+    out->targets.size++;
     return 0;
 }
 
@@ -177,20 +211,29 @@ static void teardown(void) {
     testrand_finish();
 }
 
+static void run_test(const struct test_entry* t) {
+    printf("Running %s..\n", t->name);
+    t->func();
+    printf("%s PASSED\n", t->name);
+}
+
 /* Process tests in sequential order */
-static int run_sequential(void) {
+static int run_sequential(struct Args* args, int run_all) {
     struct test_entry* t;
-    for (t = tests; t->name; t++) {
-        printf("Running %s..\n", t->name);
-        t->func();
-        printf("%s PASSED\n", t->name);
+    if (run_all) for (t = tests; t->name; t++) run_test(t);
+    else {
+        /* Run specific targets */
+        int it;
+        for (it = 0; it < args->targets.size; it++) {
+            run_test(&tests[args->targets.slots[it]]);
+        }
     }
     return EXIT_SUCCESS;
 }
 
 #if SUPPORTS_CONCURRENCY
 /* Process tests in parallel */
-static int run_concurrent(struct Args* args) {
+static int run_concurrent(struct Args* args, int run_all) {
     /* Sub-processes info */
     pid_t workers[MAX_SUBPROCESSES];
     int pipes[MAX_SUBPROCESSES][2];
@@ -199,7 +242,7 @@ static int run_concurrent(struct Args* args) {
     /* Parent process exit status */
     int status;
     /* Loop iterator */
-    int it;
+    int it, it_end;
     /* Launch worker processes */
     for (it = 0; it < args->num_processes; it++) {
         pid_t pid;
@@ -219,10 +262,7 @@ static int run_concurrent(struct Args* args) {
             int idx;
             close(pipes[it][1]); /* Close write end */
             while (read(pipes[it][0], &idx, sizeof(idx)) == sizeof(idx)) {
-                const char* name = tests[idx].name;
-                printf("Running %s..\n", name);
-                tests[idx].func();
-                printf("%s PASSED\n", name);
+                run_test(&tests[idx]);
             }
             _exit(EXIT_SUCCESS); /* finish child process */
         } else {
@@ -234,13 +274,15 @@ static int run_concurrent(struct Args* args) {
 
     /* Now that we have all sub-processes, distribute workload in round-robin */
     worker_idx = 0;
-    for (it = 0; tests[it].name != NULL; it++) {
-        if (write(pipes[worker_idx][1], &it, sizeof(it)) == -1) {
+    it_end = run_all ? (int) NUM_TESTS : args->targets.size;
+    for (it = 0; it < it_end; it++) {
+        /* If not run_all, take the test from the specified targets */
+        int idx = run_all ? it : args->targets.slots[it];
+        if (write(pipes[worker_idx][1], &idx, sizeof(idx)) == -1) {
             perror("Error during workload distribution");
             return EXIT_FAILURE;
         }
-        worker_idx++;
-        if (worker_idx >= args->num_processes) worker_idx = 0;
+        if (++worker_idx >= args->num_processes) worker_idx = 0;
     }
 
     /* Close all pipes to signal workers to exit */
@@ -253,8 +295,9 @@ static int run_concurrent(struct Args* args) {
 #endif
 
 int main(int argc, char** argv) {
+    int run_all = 1;
     /* Command-line args */
-    struct Args args = {/*num_processes=*/0, /*custom_seed=*/NULL};
+    struct Args args = {/*num_processes=*/0, /*custom_seed=*/NULL, /*targets=*/{{0}, 0}};
     /* Test entry iterator */
     struct test_entry* t;
     /* Process exit status */
@@ -295,14 +338,18 @@ int main(int argc, char** argv) {
         if (read_args(argc, argv, named_arg_start, &args) != 0) {
             _exit(EXIT_FAILURE);
         }
+
+        /* Disable run_all if there are specific targets */
+        if (args.targets.size != 0) run_all = 0;
     }
 
     /* run test RNG tests (must run before we really initialize the test RNG) */
-    /* Note: currently, these tests are executed sequentially */
+    /* Note: currently, these tests are executed sequentially because there */
+    /* is really only one test. */
     for (t = tests_no_ctx; t->name; t++) {
-        printf("Running %s..\n", t->name);
-        t->func();
-        printf("%s PASSED\n", t->name);
+        if (run_all) { /* future: support filtering */
+            run_test(t);
+        }
     }
 
     /* Initialize test RNG and library contexts */
@@ -311,10 +358,10 @@ int main(int argc, char** argv) {
 
     /* Check whether to process tests sequentially or concurrently */
     if (args.num_processes == 0) {
-        status = run_sequential();
+        status = run_sequential(&args, run_all);
     } else {
 #if SUPPORTS_CONCURRENCY
-        status = run_concurrent(&args);
+        status = run_concurrent(&args, run_all);
 #else
         fputs("Parallel execution not supported on your system. Running sequentially..\n", stderr);
         status = run_sequential(&args, run_all);
