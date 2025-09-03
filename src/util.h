@@ -138,6 +138,17 @@ static const secp256k1_callback default_error_callback = {
 #define EXPECT(x,c) (x)
 #endif
 
+/* Fallback for function name in pre-C99 */
+#if defined(__cplusplus) && !defined(FUNC_NAME)
+    #define FUNC_NAME __FUNCTION__
+#elif !defined(FUNC_NAME)
+    #ifdef __func__
+        #define FUNC_NAME __func__
+    #else
+        #define FUNC_NAME "(unknown function)"
+    #endif
+#endif
+
 #ifdef DETERMINISTIC
 #define CHECK(cond) do { \
     if (EXPECT(!(cond), 0)) { \
@@ -147,7 +158,11 @@ static const secp256k1_callback default_error_callback = {
 #else
 #define CHECK(cond) do { \
     if (EXPECT(!(cond), 0)) { \
-        TEST_FAILURE("test condition failed: " #cond); \
+        char err_buf[256];    \
+        int buf_pos = sprintf(err_buf, "test condition failed: %s in ", #cond); \
+        strncpy(err_buf + buf_pos, FUNC_NAME, sizeof(err_buf) - buf_pos - 1);   \
+        err_buf[sizeof(err_buf) - 1] = '\0'; \
+        TEST_FAILURE(err_buf); \
     } \
 } while(0)
 #endif
