@@ -227,6 +227,12 @@ static void run_static_context_tests(int use_prealloc) {
     }
 }
 
+static void run_all_static_context_tests(void)
+{
+    run_static_context_tests(0);
+    run_static_context_tests(1);
+}
+
 static void run_proper_context_tests(int use_prealloc) {
     int32_t dummy = 0;
     secp256k1_context *my_ctx, *my_ctx_fresh;
@@ -347,6 +353,12 @@ static void run_proper_context_tests(int use_prealloc) {
     /* Defined as no-op. */
     secp256k1_context_destroy(NULL);
     secp256k1_context_preallocated_destroy(NULL);
+}
+
+static void run_all_proper_context_tests(void)
+{
+    run_proper_context_tests(0);
+    run_proper_context_tests(1);
 }
 
 static void run_scratch_tests(void) {
@@ -7666,179 +7678,132 @@ static void run_cmov_tests(void) {
     ge_storage_cmov_test();
 }
 
-int main(int argc, char **argv) {
-    /* Disable buffering for stdout to improve reliability of getting
-     * diagnostic information. Happens right at the start of main because
-     * setbuf must be used before any other operation on the stream. */
-    setbuf(stdout, NULL);
-    /* Also disable buffering for stderr because it's not guaranteed that it's
-     * unbuffered on all systems. */
-    setbuf(stderr, NULL);
+typedef void (*test_fn)(void);
 
-    /* find iteration count */
-    if (argc > 1) {
-        COUNT = strtol(argv[1], NULL, 0);
-    } else {
-        const char* env = getenv("SECP256K1_TEST_ITERS");
-        if (env && strlen(env) > 0) {
-            COUNT = strtol(env, NULL, 0);
-        }
-    }
-    if (COUNT <= 0) {
-        fputs("An iteration count of 0 or less is not allowed.\n", stderr);
-        return EXIT_FAILURE;
-    }
-    printf("test count = %i\n", COUNT);
+struct test_entry {
+    const char* name;
+    test_fn func;
+};
 
-    /* run test RNG tests (must run before we really initialize the test RNG) */
-    run_xoshiro256pp_tests();
+/* --- Context Independent - Test registry --- */
+static struct test_entry tests_no_ctx[] = {
+    {"xoshiro256pp_tests", run_xoshiro256pp_tests},
+    {NULL, NULL}
+};
 
-    /* find random seed */
-    testrand_init(argc > 2 ? argv[2] : NULL);
-
-    /*** Setup test environment ***/
-
-    /* Create a global context available to all tests */
-    CTX = secp256k1_context_create(SECP256K1_CONTEXT_NONE);
-    /* Randomize the context only with probability 15/16
-       to make sure we test without context randomization from time to time.
-       TODO Reconsider this when recalibrating the tests. */
-    if (testrand_bits(4)) {
-        unsigned char rand32[32];
-        testrand256(rand32);
-        CHECK(secp256k1_context_randomize(CTX, rand32));
-    }
-    /* Make a writable copy of secp256k1_context_static in order to test the effect of API functions
-       that write to the context. The API does not support cloning the static context, so we use
-       memcpy instead. The user is not supposed to copy a context but we should still ensure that
-       the API functions handle copies of the static context gracefully. */
-    STATIC_CTX = malloc(sizeof(*secp256k1_context_static));
-    CHECK(STATIC_CTX != NULL);
-    memcpy(STATIC_CTX, secp256k1_context_static, sizeof(secp256k1_context));
-    CHECK(!secp256k1_context_is_proper(STATIC_CTX));
-
-    /*** Run actual tests ***/
-
+/* --- Test registry --- */
+static struct test_entry tests[] = {
     /* selftest tests */
-    run_selftest_tests();
+    {"selftest_tests", run_selftest_tests},
 
     /* context tests */
-    run_proper_context_tests(0); run_proper_context_tests(1);
-    run_static_context_tests(0); run_static_context_tests(1);
-    run_deprecated_context_flags_test();
+    {"all_proper_context_tests", run_all_proper_context_tests},
+    {"all_static_context_tests", run_all_static_context_tests},
+    {"deprecated_context_flags_test", run_deprecated_context_flags_test},
 
     /* scratch tests */
-    run_scratch_tests();
+    {"scratch_tests", run_scratch_tests},
 
     /* integer arithmetic tests */
 #ifdef SECP256K1_WIDEMUL_INT128
-    run_int128_tests();
+    {"int128_tests", run_int128_tests},
 #endif
-    run_ctz_tests();
-    run_modinv_tests();
-    run_inverse_tests();
+    {"ctz_tests", run_ctz_tests},
+    {"modinv_tests", run_modinv_tests},
+    {"inverse_tests", run_inverse_tests},
 
     /* sorting tests */
-    run_hsort_tests();
+    {"hsort_tests", run_hsort_tests},
 
     /* hash tests */
-    run_sha256_known_output_tests();
-    run_sha256_counter_tests();
-    run_hmac_sha256_tests();
-    run_rfc6979_hmac_sha256_tests();
-    run_tagged_sha256_tests();
+    {"sha256_known_output_tests", run_sha256_known_output_tests},
+    {"sha256_counter_tests", run_sha256_counter_tests},
+    {"hmac_sha256_tests", run_hmac_sha256_tests},
+    {"rfc6979_hmac_sha256_tests", run_rfc6979_hmac_sha256_tests},
+    {"tagged_sha256_tests", run_tagged_sha256_tests},
 
     /* scalar tests */
-    run_scalar_tests();
+    {"scalar_tests", run_scalar_tests},
 
     /* field tests */
-    run_field_half();
-    run_field_misc();
-    run_field_convert();
-    run_field_be32_overflow();
-    run_fe_mul();
-    run_sqr();
-    run_sqrt();
+    {"field_half", run_field_half},
+    {"field_misc", run_field_misc},
+    {"field_convert", run_field_convert},
+    {"field_be32_overflow", run_field_be32_overflow},
+    {"fe_mul", run_fe_mul},
+    {"sqr", run_sqr},
+    {"sqrt", run_sqrt},
 
     /* group tests */
-    run_ge();
-    run_gej();
-    run_group_decompress();
+    {"ge", run_ge},
+    {"gej", run_gej},
+    {"group_decompress", run_group_decompress},
 
     /* ecmult tests */
-    run_ecmult_pre_g();
-    run_wnaf();
-    run_point_times_order();
-    run_ecmult_near_split_bound();
-    run_ecmult_chain();
-    run_ecmult_constants();
-    run_ecmult_gen_blind();
-    run_ecmult_const_tests();
-    run_ecmult_multi_tests();
-    run_ec_combine();
+    {"ecmult_pre_g", run_ecmult_pre_g},
+    {"wnaf", run_wnaf},
+    {"point_times_order", run_point_times_order},
+    {"ecmult_near_split_bound", run_ecmult_near_split_bound},
+    {"ecmult_chain", run_ecmult_chain},
+    {"ecmult_constants", run_ecmult_constants},
+    {"ecmult_gen_blind", run_ecmult_gen_blind},
+    {"ecmult_const_tests", run_ecmult_const_tests},
+    {"ecmult_multi_tests", run_ecmult_multi_tests},
+    {"ec_combine", run_ec_combine},
 
     /* endomorphism tests */
-    run_endomorphism_tests();
+    {"endomorphism_tests", run_endomorphism_tests},
 
     /* EC point parser test */
-    run_ec_pubkey_parse_test();
+    {"ec_pubkey_parse_test", run_ec_pubkey_parse_test},
 
     /* EC key edge cases */
-    run_eckey_edge_case_test();
+    {"eckey_edge_case_test", run_eckey_edge_case_test},
 
     /* EC key arithmetic test */
-    run_eckey_negate_test();
+    {"eckey_negate_test", run_eckey_negate_test},
 
 #ifdef ENABLE_MODULE_ECDH
     /* ecdh tests */
-    run_ecdh_tests();
+    {"ecdh_tests", run_ecdh_tests},
 #endif
 
     /* ecdsa tests */
-    run_ec_illegal_argument_tests();
-    run_pubkey_comparison();
-    run_pubkey_sort();
-    run_random_pubkeys();
-    run_ecdsa_der_parse();
-    run_ecdsa_sign_verify();
-    run_ecdsa_end_to_end();
-    run_ecdsa_edge_cases();
-    run_ecdsa_wycheproof();
+    {"ec_illegal_argument_tests", run_ec_illegal_argument_tests},
+    {"pubkey_comparison", run_pubkey_comparison},
+    {"pubkey_sort", run_pubkey_sort},
+    {"random_pubkeys", run_random_pubkeys},
+    {"ecdsa_der_parse", run_ecdsa_der_parse},
+    {"ecdsa_sign_verify", run_ecdsa_sign_verify},
+    {"ecdsa_end_to_end", run_ecdsa_end_to_end},
+    {"ecdsa_edge_cases", run_ecdsa_edge_cases},
+    {"ecdsa_wycheproof", run_ecdsa_wycheproof},
 
 #ifdef ENABLE_MODULE_RECOVERY
     /* ECDSA pubkey recovery tests */
-    run_recovery_tests();
+    {"recovery_tests", run_recovery_tests},
 #endif
 
 #ifdef ENABLE_MODULE_EXTRAKEYS
-    run_extrakeys_tests();
+    {"extrakeys_tests", run_extrakeys_tests},
 #endif
 
 #ifdef ENABLE_MODULE_SCHNORRSIG
-    run_schnorrsig_tests();
+    {"schnorrsig_tests", run_schnorrsig_tests},
 #endif
 
 #ifdef ENABLE_MODULE_MUSIG
-    run_musig_tests();
+    {"musig_tests", run_musig_tests},
 #endif
 
 #ifdef ENABLE_MODULE_ELLSWIFT
-    run_ellswift_tests();
+    {"ellswift_tests", run_ellswift_tests},
 #endif
 
     /* util tests */
-    run_secp256k1_memczero_test();
-    run_secp256k1_is_zero_array_test();
-    run_secp256k1_byteorder_tests();
-
-    run_cmov_tests();
-
-    /*** Tear down test environment ***/
-    free(STATIC_CTX);
-    secp256k1_context_destroy(CTX);
-
-    testrand_finish();
-
-    printf("no problems found\n");
-    return EXIT_SUCCESS;
-}
+    {"secp256k1_memczero_test", run_secp256k1_memczero_test},
+    {"secp256k1_is_zero_array_test", run_secp256k1_is_zero_array_test},
+    {"secp256k1_byteorder_tests", run_secp256k1_byteorder_tests},
+    {"cmov_tests", run_cmov_tests},
+    {NULL, NULL}
+};
