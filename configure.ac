@@ -443,6 +443,16 @@ if test x"$enable_experimental" = x"no"; then
   fi
 fi
 
+# Check for concurrency support (tests only)
+if test "x$enable_tests" != x"no"; then
+  AC_CHECK_HEADERS([sys/types.h sys/wait.h unistd.h])
+  SUPPORTS_CONCURRENCY=0
+  if test "x$HAVE_SYS_TYPES_H" = xyes -a "x$HAVE_SYS_WAIT_H" = xyes -a "x$HAVE_UNISTD_H" = xyes; then
+    SUPPORTS_CONCURRENCY=1
+  fi
+  AC_SUBST(SUPPORTS_CONCURRENCY)
+fi
+
 ###
 ### Generate output
 ###
