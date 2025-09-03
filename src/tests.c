@@ -7807,3 +7807,5 @@ static struct test_entry tests[] = {
     {"cmov_tests", run_cmov_tests},
     {NULL, NULL}
 };
+
+#define NUM_TESTS (sizeof(tests) / sizeof(tests[0]) - 1)
