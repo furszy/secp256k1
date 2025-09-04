@@ -7,8 +7,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
+#include "secp256k1.c"
 #include "../include/secp256k1.h"
+#include "testrand_impl.h"
 #include "util.h"
 #include "bench.h"
 

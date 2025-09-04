@@ -11,6 +11,28 @@
 #include "testrand.h"
 #include "util.h"
 
+#if (defined(_MSC_VER) && _MSC_VER >= 1900)
+#  include <time.h>
+#else
+#  include <sys/time.h>
+#endif
+
+static int64_t gettime_i64(void) {
+#if (defined(_MSC_VER) && _MSC_VER >= 1900)
+    /* C11 way to get wallclock time */
+    struct timespec tv;
+    if (!timespec_get(&tv, TIME_UTC)) {
+        fputs("timespec_get failed!", stderr);
+        exit(EXIT_FAILURE);
+    }
+    return (int64_t)tv.tv_nsec / 1000 + (int64_t)tv.tv_sec * 1000000LL;
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (int64_t)tv.tv_usec + (int64_t)tv.tv_sec * 1000000LL;
+#endif
+}
+
 static void testutil_random_fe(secp256k1_fe *x) {
     unsigned char bin[32];
     do {
