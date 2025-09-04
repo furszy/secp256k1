@@ -7,9 +7,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
+#include "secp256k1.c"
 #include "../include/secp256k1.h"
 #include "util.h"
+#include "field_impl.h"
+#include "testrand_impl.h"
 #include "bench.h"
 
 static void help(int default_iters) {

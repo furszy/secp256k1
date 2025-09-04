@@ -5,6 +5,7 @@
  ***********************************************************************/
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 
 #include "secp256k1.c"
 #include "../include/secp256k1.h"
@@ -16,6 +17,7 @@
 #include "group_impl.h"
 #include "scalar_impl.h"
 #include "ecmult_impl.h"
+#include "testrand_impl.h"
 #include "bench.h"
 
 static void help(int default_iters) {

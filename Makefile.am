@@ -105,7 +105,7 @@ noinst_PROGRAMS =
 if USE_BENCHMARK
 noinst_PROGRAMS += bench bench_internal bench_ecmult
 bench_SOURCES = src/bench.c
-bench_LDADD = libsecp256k1.la
+bench_LDADD = $(COMMON_LIB) $(PRECOMPUTED_LIB)
 bench_CPPFLAGS = $(SECP_CONFIG_DEFINES)
 bench_internal_SOURCES = src/bench_internal.c
 bench_internal_LDADD = $(COMMON_LIB) $(PRECOMPUTED_LIB)
