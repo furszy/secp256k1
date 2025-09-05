@@ -92,6 +92,7 @@ static void help(void) {
     printf("Run the test suite for the project with optional configuration.\n\n");
     printf("Options:\n");
     printf("    -help                           Show this help message\n");
+    printf("    -print_tests                    Display list of available tests\n");
     printf("    -j=<num>, -jobs=<num>           Number of parallel worker processes (default: 0 = sequential)\n");
     printf("    -iter=<num>, -iterations=<num>  Number of iterations for each test (default: 64)\n");
     printf("    -seed=<hex>                     Set a specific RNG seed (default: random)\n");
@@ -102,6 +103,17 @@ static void help(void) {
     printf("    - Unknown arguments are reported but ignored.\n");
     printf("    - Sequential execution occurs if -jobs=0 or unspecified.\n");
     printf("    - The first two positional arguments (iterations and seed) are also supported for backward compatibility.\n");
+}
+
+static void print_test_list(void) {
+    int i;
+    printf("Available tests (%d):\n", (int) NUM_TESTS);
+    printf("--------------------------------------------------\n");
+    for (i = 0; i < (int) NUM_TESTS; i++) {
+        printf("  [%3d] %s\n", i + 1, tests[i].name);
+    }
+    printf("--------------------------------------------------\n");
+    printf("Run with: ./tests <test_name>\n");
 }
 
 static int parse_jobs_count(const char* key, const char* value, struct Args* out) {
@@ -324,6 +336,12 @@ int main(int argc, char** argv) {
         /* Check if we need to print help */
         if (argv[1] && strcmp(argv[1], "-help") == 0) {
             help();
+            _exit(EXIT_SUCCESS);
+        }
+
+        /* Check if we need to print the available tests */
+        if (argv[1] && strcmp(argv[1], "-print_tests") == 0) {
+            print_test_list();
             _exit(EXIT_SUCCESS);
         }
 
