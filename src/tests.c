@@ -28,6 +28,8 @@
 #include "checkmem.h"
 #include "testutil.h"
 #include "util.h"
+#include "unit_test.h"
+#include "unit_test.c"
 
 #include "../contrib/lax_der_parsing.c"
 #include "../contrib/lax_der_privatekey_parsing.c"
@@ -40,7 +42,6 @@
 
 #define CONDITIONAL_TEST(cnt, nam) if (COUNT < (cnt)) { printf("Skipping %s (iteration count too low)\n", nam); } else
 
-static int COUNT = 16;
 static secp256k1_context *CTX = NULL;
 static secp256k1_context *STATIC_CTX = NULL;
 
@@ -7681,136 +7682,221 @@ static void run_cmov_tests(void) {
     ge_storage_cmov_test();
 }
 
-typedef void (*test_fn)(void);
+/* --- Test registry --- */
+#define CASE(name) { #name, run_##name }
 
-struct test_entry {
-    const char* name;
-    test_fn func;
-};
-
-/* --- Context Independent - Test registry --- */
-static struct test_entry tests_no_ctx[] = {
-    {"xoshiro256pp_tests", run_xoshiro256pp_tests},
+/* --- Context Independent --- */
+static struct TestEntry tests_no_ctx[] = {
+    CASE(xoshiro256pp_tests),
     {NULL, NULL}
 };
 
-/* --- Test registry --- */
-static struct test_entry tests[] = {
-    /* selftest tests */
-    {"selftest_tests", run_selftest_tests},
+/* --- Context-dependent tests start here --- */
+static struct TestEntry tests_general[] = {
+    CASE(selftest_tests),
+    CASE(all_proper_context_tests),
+    CASE(all_static_context_tests),
+    CASE(deprecated_context_flags_test),
+    CASE(scratch_tests),
+};
 
-    /* context tests */
-    {"all_proper_context_tests", run_all_proper_context_tests},
-    {"all_static_context_tests", run_all_static_context_tests},
-    {"deprecated_context_flags_test", run_deprecated_context_flags_test},
-
-    /* scratch tests */
-    {"scratch_tests", run_scratch_tests},
-
-    /* integer arithmetic tests */
+static struct TestEntry tests_integer[] = {
 #ifdef SECP256K1_WIDEMUL_INT128
-    {"int128_tests", run_int128_tests},
+    CASE(int128_tests),
 #endif
-    {"ctz_tests", run_ctz_tests},
-    {"modinv_tests", run_modinv_tests},
-    {"inverse_tests", run_inverse_tests},
+    CASE(ctz_tests),
+    CASE(modinv_tests),
+    CASE(inverse_tests),
+};
 
-    /* sorting tests */
-    {"hsort_tests", run_hsort_tests},
+static struct TestEntry tests_hash[] = {
+    CASE(sha256_known_output_tests),
+    CASE(sha256_counter_tests),
+    CASE(hmac_sha256_tests),
+    CASE(rfc6979_hmac_sha256_tests),
+    CASE(tagged_sha256_tests),
+};
 
-    /* hash tests */
-    {"sha256_known_output_tests", run_sha256_known_output_tests},
-    {"sha256_counter_tests", run_sha256_counter_tests},
-    {"hmac_sha256_tests", run_hmac_sha256_tests},
-    {"rfc6979_hmac_sha256_tests", run_rfc6979_hmac_sha256_tests},
-    {"tagged_sha256_tests", run_tagged_sha256_tests},
+static struct TestEntry tests_scalar[] = {
+    CASE(scalar_tests),
+};
 
-    /* scalar tests */
-    {"scalar_tests", run_scalar_tests},
+static struct TestEntry tests_field[] = {
+    CASE(field_half),
+    CASE(field_misc),
+    CASE(field_convert),
+    CASE(field_be32_overflow),
+    CASE(fe_mul),
+    CASE(sqr),
+    CASE(sqrt),
+};
 
-    /* field tests */
-    {"field_half", run_field_half},
-    {"field_misc", run_field_misc},
-    {"field_convert", run_field_convert},
-    {"field_be32_overflow", run_field_be32_overflow},
-    {"fe_mul", run_fe_mul},
-    {"sqr", run_sqr},
-    {"sqrt", run_sqrt},
+static struct TestEntry tests_group[] = {
+    CASE(ge),
+    CASE(gej),
+    CASE(group_decompress),
+};
 
-    /* group tests */
-    {"ge", run_ge},
-    {"gej", run_gej},
-    {"group_decompress", run_group_decompress},
+static struct TestEntry tests_ecmult[] = {
+    CASE(ecmult_pre_g),
+    CASE(wnaf),
+    CASE(point_times_order),
+    CASE(ecmult_near_split_bound),
+    CASE(ecmult_chain),
+    CASE(ecmult_constants),
+    CASE(ecmult_gen_blind),
+    CASE(ecmult_const_tests),
+    CASE(ecmult_multi_tests),
+    CASE(ec_combine),
+};
 
-    /* ecmult tests */
-    {"ecmult_pre_g", run_ecmult_pre_g},
-    {"wnaf", run_wnaf},
-    {"point_times_order", run_point_times_order},
-    {"ecmult_near_split_bound", run_ecmult_near_split_bound},
-    {"ecmult_chain", run_ecmult_chain},
-    {"ecmult_constants", run_ecmult_constants},
-    {"ecmult_gen_blind", run_ecmult_gen_blind},
-    {"ecmult_const_tests", run_ecmult_const_tests},
-    {"ecmult_multi_tests", run_ecmult_multi_tests},
-    {"ec_combine", run_ec_combine},
+static struct TestEntry tests_ec[] = {
+    CASE(endomorphism_tests),
+    CASE(ec_pubkey_parse_test),
+    CASE(eckey_edge_case_test),
+    CASE(eckey_negate_test),
+};
 
-    /* endomorphism tests */
-    {"endomorphism_tests", run_endomorphism_tests},
-
-    /* EC point parser test */
-    {"ec_pubkey_parse_test", run_ec_pubkey_parse_test},
-
-    /* EC key edge cases */
-    {"eckey_edge_case_test", run_eckey_edge_case_test},
-
-    /* EC key arithmetic test */
-    {"eckey_negate_test", run_eckey_negate_test},
-
+static struct TestEntry tests_ecdh[] = {
 #ifdef ENABLE_MODULE_ECDH
-    /* ecdh tests */
-    {"ecdh_tests", run_ecdh_tests},
+    CASE(ecdh_tests),
 #endif
+};
 
-    /* ecdsa tests */
-    {"ec_illegal_argument_tests", run_ec_illegal_argument_tests},
-    {"pubkey_comparison", run_pubkey_comparison},
-    {"pubkey_sort", run_pubkey_sort},
-    {"random_pubkeys", run_random_pubkeys},
-    {"ecdsa_der_parse", run_ecdsa_der_parse},
-    {"ecdsa_sign_verify", run_ecdsa_sign_verify},
-    {"ecdsa_end_to_end", run_ecdsa_end_to_end},
-    {"ecdsa_edge_cases", run_ecdsa_edge_cases},
-    {"ecdsa_wycheproof", run_ecdsa_wycheproof},
+static struct TestEntry tests_ecdsa[] = {
+    CASE(ec_illegal_argument_tests),
+    CASE(pubkey_comparison),
+    CASE(pubkey_sort),
+    CASE(random_pubkeys),
+    CASE(ecdsa_der_parse),
+    CASE(ecdsa_sign_verify),
+    CASE(ecdsa_end_to_end),
+    CASE(ecdsa_edge_cases),
+    CASE(ecdsa_wycheproof),
+};
 
+static struct TestEntry tests_recovery[] = {
 #ifdef ENABLE_MODULE_RECOVERY
     /* ECDSA pubkey recovery tests */
-    {"recovery_tests", run_recovery_tests},
+    CASE(recovery_tests),
 #endif
-
-#ifdef ENABLE_MODULE_EXTRAKEYS
-    {"extrakeys_tests", run_extrakeys_tests},
-#endif
-
-#ifdef ENABLE_MODULE_SCHNORRSIG
-    {"schnorrsig_tests", run_schnorrsig_tests},
-#endif
-
-#ifdef ENABLE_MODULE_MUSIG
-    {"musig_tests", run_musig_tests},
-#endif
-
-#ifdef ENABLE_MODULE_ELLSWIFT
-    {"ellswift_tests", run_ellswift_tests},
-#endif
-
-    /* util tests */
-    {"secp256k1_memczero_test", run_secp256k1_memczero_test},
-    {"secp256k1_is_zero_array_test", run_secp256k1_is_zero_array_test},
-    {"secp256k1_byteorder_tests", run_secp256k1_byteorder_tests},
-    {"cmov_tests", run_cmov_tests},
-    {NULL, NULL}
 };
 
-#define NUM_TESTS (sizeof(tests) / sizeof(tests[0]) - 1)
+static struct TestEntry tests_extrakeys[] = {
+#ifdef ENABLE_MODULE_EXTRAKEYS
+    CASE(extrakeys_tests),
+#endif
+};
+
+static struct TestEntry tests_schnorrsig[] = {
+#ifdef ENABLE_MODULE_SCHNORRSIG
+    CASE(schnorrsig_tests),
+#endif
+};
+
+static struct TestEntry tests_musig[] = {
+#ifdef ENABLE_MODULE_MUSIG
+    CASE(musig_tests),
+#endif
+};
+
+static struct TestEntry tests_ellswift[] = {
+#ifdef ENABLE_MODULE_ELLSWIFT
+    CASE(ellswift_tests),
+#endif
+};
+
+static struct TestEntry tests_utils[] = {
+    CASE(hsort_tests),
+    CASE(secp256k1_memczero_test),
+    CASE(secp256k1_is_zero_array_test),
+    CASE(secp256k1_byteorder_tests),
+    CASE(cmov_tests),
+};
+
+#define MAKE_TEST_MODULE(name) {\
+    #name, \
+    tests_##name, \
+    sizeof(tests_##name) / sizeof(tests_##name[0]) \
+}
+
+/* Register test cases */
+struct TestModule tests_by_module[] = {
+    MAKE_TEST_MODULE(general),
+    MAKE_TEST_MODULE(integer),
+    MAKE_TEST_MODULE(hash),
+    MAKE_TEST_MODULE(scalar),
+    MAKE_TEST_MODULE(field),
+    MAKE_TEST_MODULE(group),
+    MAKE_TEST_MODULE(ecmult),
+    MAKE_TEST_MODULE(ec),
+#ifdef ENABLE_MODULE_ECDH
+    MAKE_TEST_MODULE(ecdh),
+#endif
+    MAKE_TEST_MODULE(ecdsa),
+#ifdef ENABLE_MODULE_RECOVERY
+    MAKE_TEST_MODULE(recovery),
+#endif
+#ifdef ENABLE_MODULE_EXTRAKEYS
+    MAKE_TEST_MODULE(extrakeys),
+#endif
+#ifdef ENABLE_MODULE_SCHNORRSIG
+    MAKE_TEST_MODULE(schnorrsig),
+#endif
+#ifdef ENABLE_MODULE_MUSIG
+    MAKE_TEST_MODULE(musig),
+#endif
+#ifdef ENABLE_MODULE_ELLSWIFT
+    MAKE_TEST_MODULE(ellswift),
+#endif
+    MAKE_TEST_MODULE(utils),
+};
+
+/* Setup test environment */
+static int setup(void) {
+    /* Create a global context available to all tests */
+    CTX = secp256k1_context_create(SECP256K1_CONTEXT_NONE);
+    /* Randomize the context only with probability 15/16
+       to make sure we test without context randomization from time to time.
+       TODO Reconsider this when recalibrating the tests. */
+    if (testrand_bits(4)) {
+        unsigned char rand32[32];
+        testrand256(rand32);
+        CHECK(secp256k1_context_randomize(CTX, rand32));
+    }
+    /* Make a writable copy of secp256k1_context_static in order to test the effect of API functions
+       that write to the context. The API does not support cloning the static context, so we use
+       memcpy instead. The user is not supposed to copy a context but we should still ensure that
+       the API functions handle copies of the static context gracefully. */
+    STATIC_CTX = malloc(sizeof(*secp256k1_context_static));
+    CHECK(STATIC_CTX != NULL);
+    memcpy(STATIC_CTX, secp256k1_context_static, sizeof(secp256k1_context));
+    CHECK(!secp256k1_context_is_proper(STATIC_CTX));
+    return 0;
+}
+
+/* Shutdown test environment */
+static int teardown(void) {
+    free(STATIC_CTX);
+    secp256k1_context_destroy(CTX);
+
+    testrand_finish();
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    struct TestFramework tf;
+    tf.registry_modules = tests_by_module;
+    tf.num_modules = sizeof(tests_by_module) / sizeof(tests_by_module[0]);
+    tf.registry_no_ctx = tests_no_ctx;
+
+    /* Add context creation/destruction functions */
+    tf.fn_setup = setup;
+    tf.fn_teardown = teardown;
+
+    /* Init and run framework */
+    if (tf_init(&tf, argc, argv) != 0) return EXIT_FAILURE;
+    return tf_run(&tf);
+}
 
 #endif /* SECP256K1_TESTS_C */
