@@ -28,6 +28,8 @@
 #include "checkmem.h"
 #include "testutil.h"
 #include "util.h"
+#include "unit_test.h"
+#include "unit_test.c"
 
 #include "../contrib/lax_der_parsing.c"
 #include "../contrib/lax_der_privatekey_parsing.c"
@@ -40,7 +42,6 @@
 
 #define CONDITIONAL_TEST(cnt, nam) if (COUNT < (cnt)) { printf("Skipping %s (iteration count too low)\n", nam); } else
 
-static int COUNT = 16;
 static secp256k1_context *CTX = NULL;
 static secp256k1_context *STATIC_CTX = NULL;
 
@@ -7681,13 +7682,6 @@ static void run_cmov_tests(void) {
     ge_storage_cmov_test();
 }
 
-typedef void (*test_fn)(void);
-
-struct test_entry {
-    const char* name;
-    test_fn func;
-};
-
 /* --- Context Independent - Test registry --- */
 static struct test_entry tests_no_ctx[] = {
     {"xoshiro256pp_tests", run_xoshiro256pp_tests},
@@ -7812,5 +7806,53 @@ static struct test_entry tests[] = {
 };
 
 #define NUM_TESTS (sizeof(tests) / sizeof(tests[0]) - 1)
+
+/* Setup test environment */
+static int setup(void) {
+    /* Create a global context available to all tests */
+    CTX = secp256k1_context_create(SECP256K1_CONTEXT_NONE);
+    /* Randomize the context only with probability 15/16
+       to make sure we test without context randomization from time to time.
+       TODO Reconsider this when recalibrating the tests. */
+    if (testrand_bits(4)) {
+        unsigned char rand32[32];
+        testrand256(rand32);
+        CHECK(secp256k1_context_randomize(CTX, rand32));
+    }
+    /* Make a writable copy of secp256k1_context_static in order to test the effect of API functions
+       that write to the context. The API does not support cloning the static context, so we use
+       memcpy instead. The user is not supposed to copy a context but we should still ensure that
+       the API functions handle copies of the static context gracefully. */
+    STATIC_CTX = malloc(sizeof(*secp256k1_context_static));
+    CHECK(STATIC_CTX != NULL);
+    memcpy(STATIC_CTX, secp256k1_context_static, sizeof(secp256k1_context));
+    CHECK(!secp256k1_context_is_proper(STATIC_CTX));
+    return 0;
+}
+
+/* Shutdown test environment */
+static int teardown(void) {
+    free(STATIC_CTX);
+    secp256k1_context_destroy(CTX);
+
+    testrand_finish();
+    return 0;
+}
+
+int main(int argc, char **argv) {
+    struct TestFramework tf;
+    /* Add context creation/destruction functions */
+    tf.fn_setup = setup;
+    tf.fn_teardown = teardown;
+
+    /* Add test cases */
+    tf.registry = tests;
+    tf.num_tests = (int) NUM_TESTS;
+    tf.registry_no_ctx = tests_no_ctx;
+
+    /* Init and run framework */
+    if (tf_init(&tf, argc, argv) != 0) return EXIT_FAILURE;
+    return tf_run(&tf);
+}
 
 #endif /* SECP256K1_TESTS_C */

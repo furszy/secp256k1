@@ -7,8 +7,6 @@
 #ifndef LIBSECP256K1_UNIT_TEST_C
 #define LIBSECP256K1_UNIT_TEST_C
 
-#include "tests.c"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,29 +27,16 @@
 #  define SUPPORTS_CONCURRENCY 0
 #endif
 
-#define MAX_ARGS 20
-#define MAX_SUBPROCESSES 16
+#include "unit_test.h"
+#include "testrand.h"
+#include "testutil.h"
 
-struct Targets {
-    /* Target tests indexes */
-    int slots[NUM_TESTS];
-    /* Next available slot */
-    int size;
-};
-
-/* --- Command-line args --- */
-struct Args {
-    /* 0 => sequential; 1..MAX_SUBPROCESSES => parallel workers */
-    int num_processes;
-    /* Specific RNG seed */
-    const char* custom_seed;
-    /* Target tests indexes */
-    struct Targets targets;
-};
+/* Number of times certain tests will run */
+int COUNT = 16;
 
 static int parse_jobs_count(const char* key, const char* value, struct Args* out);
 static int parse_iterations(const char* arg);
-static int parse_target(const char* value, struct Args* out);
+static int parse_target(const char* value, struct TestFramework* tf);
 
 /*
  *   Main entry point for handling command-line arguments.
@@ -63,10 +48,10 @@ static int parse_target(const char* value, struct Args* out);
  *   options are introduced. Each new argument should be validated,
  *   converted to the appropriate type, and stored in the 'Args' struct.
  */
-static int parse_arg(const char* key, const char* value, struct Args* out) {
+static int parse_arg(const char* key, const char* value, struct TestFramework* tf) {
     /* Number of concurrent tasks */
     if (strcmp(key, "j") == 0 || strcmp(key, "jobs") == 0) {
-        return parse_jobs_count(key, value, out);
+        return parse_jobs_count(key, value, &tf->args);
     }
     /* Number of iterations */
     if (strcmp(key, "iter") == 0 || strcmp(key, "iterations") == 0) {
@@ -74,12 +59,12 @@ static int parse_arg(const char* key, const char* value, struct Args* out) {
     }
     /* Custom seed */
     if (strcmp(key, "seed") == 0) {
-        out->custom_seed = (!value || strcmp(value, "NULL") == 0) ? NULL : value;
+        tf->args.custom_seed = (!value || strcmp(value, "NULL") == 0) ? NULL : value;
         return 0;
     }
     /* Test target */
     if (strcmp(key, "t") == 0 || strcmp(key, "target") == 0) {
-        return parse_target(value, out);
+        return parse_target(value, tf);
     }
 
     /* Unknown key: report just so typos don’t silently pass. */
@@ -105,12 +90,13 @@ static void help(void) {
     printf("    - The first two positional arguments (iterations and seed) are also supported for backward compatibility.\n");
 }
 
-static void print_test_list(void) {
+/* Print all tests in registry */
+static void print_test_list(struct TestFramework* tf) {
     int i;
-    printf("Available tests (%d):\n", (int) NUM_TESTS);
+    printf("Available tests (%d):\n", tf->num_tests);
     printf("--------------------------------------------------\n");
-    for (i = 0; i < (int) NUM_TESTS; i++) {
-        printf("  [%3d] %s\n", i + 1, tests[i].name);
+    for (i = 0; i < tf->num_tests; i++) {
+        printf("  [%3d] %s\n", i + 1, tf->registry[i].name);
     }
     printf("--------------------------------------------------\n");
     printf("Run with: ./tests <test_name>\n");
@@ -132,7 +118,7 @@ static int parse_jobs_count(const char* key, const char* value, struct Args* out
 }
 
 static int parse_iterations(const char* arg) {
-    /* find iteration count */
+    /* Find iteration count */
     if (arg) {
         COUNT = (int) strtol(arg, NULL, 0);
     } else {
@@ -149,27 +135,27 @@ static int parse_iterations(const char* arg) {
     return 0;
 }
 
-static int parse_target(const char* value, struct Args* out) {
+static int parse_target(const char* value, struct TestFramework* tf) {
     int idx_test;
-    if (out->targets.size > (int) NUM_TESTS) {
-        printf("Too many -target arguments (max: %d)\n", (int) NUM_TESTS);
+    if (tf->args.targets.size > tf->num_tests) {
+        printf("Too many -target arguments (max: %d)\n", tf->num_tests);
         return -1;
     }
     /* Find test index in the registry */
-    for (idx_test = 0; idx_test < (int) NUM_TESTS; idx_test++) {
-        if (strcmp(value, tests[idx_test].name) == 0) break;
+    for (idx_test = 0; idx_test < tf->num_tests; idx_test++) {
+        if (strcmp(value, tf->registry[idx_test].name) == 0) break;
     }
-    if (idx_test == (int) NUM_TESTS) {
+    if (idx_test == tf->num_tests) {
         printf("Target test not found '%s'\n", value);
         return -1;
     }
-    out->targets.slots[out->targets.size] = idx_test;
-    out->targets.size++;
+    tf->args.targets.slots[tf->args.targets.size] = idx_test;
+    tf->args.targets.size++;
     return 0;
 }
 
 /* Read args; all must be "-key=value" */
-static int read_args(int argc, char** argv, int start, struct Args* out) {
+static int read_args(int argc, char** argv, int start, struct TestFramework* tf) {
     int i;
     char* index_equality;
     for (i = start; i < argc; i++) {
@@ -186,41 +172,11 @@ static int read_args(int argc, char** argv, int start, struct Args* out) {
         }
 
         *index_equality = '\0';
-        if (parse_arg(arg + 1, index_equality + 1, out) != 0) {
+        if (parse_arg(arg + 1, index_equality + 1, tf) != 0) {
             return -1;
         }
     }
     return 0;
-}
-
-/* Setup test environment */
-static void setup(void) {
-    /* Create a global context available to all tests */
-    CTX = secp256k1_context_create(SECP256K1_CONTEXT_NONE);
-    /* Randomize the context only with probability 15/16
-       to make sure we test without context randomization from time to time.
-       TODO Reconsider this when recalibrating the tests. */
-    if (testrand_bits(4)) {
-        unsigned char rand32[32];
-        testrand256(rand32);
-        CHECK(secp256k1_context_randomize(CTX, rand32));
-    }
-    /* Make a writable copy of secp256k1_context_static in order to test the effect of API functions
-       that write to the context. The API does not support cloning the static context, so we use
-       memcpy instead. The user is not supposed to copy a context but we should still ensure that
-       the API functions handle copies of the static context gracefully. */
-    STATIC_CTX = malloc(sizeof(*secp256k1_context_static));
-    CHECK(STATIC_CTX != NULL);
-    memcpy(STATIC_CTX, secp256k1_context_static, sizeof(secp256k1_context));
-    CHECK(!secp256k1_context_is_proper(STATIC_CTX));
-}
-
-/* Shutdown test environment */
-static void teardown(void) {
-    free(STATIC_CTX);
-    secp256k1_context_destroy(CTX);
-
-    testrand_finish();
 }
 
 static void run_test(const struct test_entry* t) {
@@ -230,14 +186,14 @@ static void run_test(const struct test_entry* t) {
 }
 
 /* Process tests in sequential order */
-static int run_sequential(struct Args* args, int run_all) {
+static int run_sequential(struct TestFramework* tf, int run_all) {
     struct test_entry* t;
-    if (run_all) for (t = tests; t->name; t++) run_test(t);
+    if (run_all) for (t = tf->registry; t->name; t++) run_test(t);
     else {
         /* Run specific targets */
         int it;
-        for (it = 0; it < args->targets.size; it++) {
-            run_test(&tests[args->targets.slots[it]]);
+        for (it = 0; it < tf->args.targets.size; it++) {
+            run_test(&tf->registry[tf->args.targets.slots[it]]);
         }
     }
     return EXIT_SUCCESS;
@@ -245,7 +201,7 @@ static int run_sequential(struct Args* args, int run_all) {
 
 #if SUPPORTS_CONCURRENCY
 /* Process tests in parallel */
-static int run_concurrent(struct Args* args, int run_all) {
+static int run_concurrent(struct TestFramework* tf, int run_all) {
     /* Sub-processes info */
     pid_t workers[MAX_SUBPROCESSES];
     int pipes[MAX_SUBPROCESSES][2];
@@ -256,7 +212,7 @@ static int run_concurrent(struct Args* args, int run_all) {
     /* Loop iterator */
     int it, it_end;
     /* Launch worker processes */
-    for (it = 0; it < args->num_processes; it++) {
+    for (it = 0; it < tf->args.num_processes; it++) {
         pid_t pid;
         if (pipe(pipes[it]) != 0) {
             perror("Error during pipe setup");
@@ -274,7 +230,7 @@ static int run_concurrent(struct Args* args, int run_all) {
             int idx;
             close(pipes[it][1]); /* Close write end */
             while (read(pipes[it][0], &idx, sizeof(idx)) == sizeof(idx)) {
-                run_test(&tests[idx]);
+                run_test(&tf->registry[idx]);
             }
             _exit(EXIT_SUCCESS); /* finish child process */
         } else {
@@ -286,36 +242,38 @@ static int run_concurrent(struct Args* args, int run_all) {
 
     /* Now that we have all sub-processes, distribute workload in round-robin */
     worker_idx = 0;
-    it_end = run_all ? (int) NUM_TESTS : args->targets.size;
+    it_end = run_all ? tf->num_tests : tf->args.targets.size;
     for (it = 0; it < it_end; it++) {
         /* If not run_all, take the test from the specified targets */
-        int idx = run_all ? it : args->targets.slots[it];
+        int idx = run_all ? it : tf->args.targets.slots[it];
         if (write(pipes[worker_idx][1], &idx, sizeof(idx)) == -1) {
             perror("Error during workload distribution");
             return EXIT_FAILURE;
         }
-        if (++worker_idx >= args->num_processes) worker_idx = 0;
+        if (++worker_idx >= tf->args.num_processes) worker_idx = 0;
     }
 
     /* Close all pipes to signal workers to exit */
-    for (it = 0; it < args->num_processes; it++) close(pipes[it][1]);
+    for (it = 0; it < tf->args.num_processes; it++) close(pipes[it][1]);
     /* Wait for all workers */
-    for (it = 0; it < args->num_processes; it++) waitpid(workers[it], &status, 0);
+    for (it = 0; it < tf->args.num_processes; it++) waitpid(workers[it], &status, 0);
 
     return EXIT_SUCCESS;
 }
 #endif
 
-int main(int argc, char** argv) {
-    int run_all = 1;
-    /* Command-line args */
-    struct Args args = {/*num_processes=*/0, /*custom_seed=*/NULL, /*targets=*/{{0}, 0}};
-    /* Test entry iterator */
-    struct test_entry* t;
-    /* Process exit status */
-    int status;
-    /* Initial test time */
-    int64_t start_time = gettime_i64();
+static int tf_init(struct TestFramework* tf, int argc, char** argv)
+{
+    /* Caller must set tf->registry and tf->num_tests before calling tf_init. */
+    if (tf->registry == NULL || tf->num_tests <= 0) {
+        printf("Internal error: tests registry not provided or empty\n");
+        return EXIT_FAILURE;
+    }
+
+    /* Initialize command-line options */
+    tf->args.num_processes = 0;
+    tf->args.custom_seed = NULL;
+    tf->args.targets.size = 0;
 
     /* Disable buffering for stdout to improve reliability of getting
      * diagnostic information. Happens right at the start of main because
@@ -330,65 +288,75 @@ int main(int argc, char** argv) {
         int named_arg_start = 1; /* index to begin processing named arguments */
         if (argc > MAX_ARGS) {
             printf("Too many command-line arguments (max: %d)\n", MAX_ARGS);
-            _exit(EXIT_FAILURE);
+            return EXIT_FAILURE;
         }
 
         /* Check if we need to print help */
         if (argv[1] && strcmp(argv[1], "-help") == 0) {
             help();
-            _exit(EXIT_SUCCESS);
+            return EXIT_SUCCESS;
         }
 
         /* Check if we need to print the available tests */
         if (argv[1] && strcmp(argv[1], "-print_tests") == 0) {
-            print_test_list();
-            _exit(EXIT_SUCCESS);
+            print_test_list(tf);
+            return EXIT_SUCCESS;
         }
 
         /* Compatibility Note: The first two args were the number of iterations and the seed. */
         /* If provided, parse them and adjust the starting index for named arguments accordingly. */
         if (argv[1] && argv[1][0] != '-') {
             int has_seed = argc > 2 && argv[2] && argv[2][0] != '-';
-            if (parse_iterations(argv[1]) != 0) _exit(EXIT_FAILURE);
-            if (has_seed) args.custom_seed = (strcmp(argv[2], "NULL") == 0) ? NULL : argv[2];
+            if (parse_iterations(argv[1]) != 0) return EXIT_FAILURE;
+            if (has_seed) tf->args.custom_seed = (strcmp(argv[2], "NULL") == 0) ? NULL : argv[2];
             named_arg_start = has_seed ? 3 : 2;
         }
-        if (read_args(argc, argv, named_arg_start, &args) != 0) {
-            _exit(EXIT_FAILURE);
+        if (read_args(argc, argv, named_arg_start, tf) != 0) {
+            return EXIT_FAILURE;
         }
-
-        /* Disable run_all if there are specific targets */
-        if (args.targets.size != 0) run_all = 0;
     }
 
-    /* run test RNG tests (must run before we really initialize the test RNG) */
+    return EXIT_SUCCESS;
+}
+
+static int tf_run(struct TestFramework* tf) {
+    /* Process exit status */
+    int status;
+    /* Test entry iterator */
+    struct test_entry* t;
+    /* Initial test time */
+    int64_t start_time = gettime_i64();
+    /* Whether to run all tests or a subset of them */
+    int run_all = tf->args.targets.size == 0;
+
+    /* Run test RNG tests (must run before we really initialize the test RNG) */
     /* Note: currently, these tests are executed sequentially because there */
     /* is really only one test. */
-    for (t = tests_no_ctx; t->name; t++) {
+    for (t = tf->registry_no_ctx; t->name; t++) {
         if (run_all) { /* future: support filtering */
             run_test(t);
         }
     }
 
     /* Initialize test RNG and library contexts */
-    testrand_init(args.custom_seed);
-    setup();
+    testrand_init(tf->args.custom_seed);
+    if (tf->fn_setup && tf->fn_setup() != 0) return EXIT_FAILURE;
 
     /* Check whether to process tests sequentially or concurrently */
-    if (args.num_processes == 0) {
-        status = run_sequential(&args, run_all);
+    if (tf->args.num_processes == 0) {
+        status = run_sequential(tf, run_all);
     } else {
 #if SUPPORTS_CONCURRENCY
-        status = run_concurrent(&args, run_all);
+        status = run_concurrent(tf, run_all);
 #else
         fputs("Parallel execution not supported on your system. Running sequentially..\n", stderr);
-        status = run_sequential(&args, run_all);
+        status = run_sequential(tf, run_all);
 #endif
     }
 
     /* Print accumulated time */
     printf("Total execution time: %.3f seconds\n", (double)(gettime_i64() - start_time) / 1000000);
-    teardown();
+    if (tf->fn_teardown && tf->fn_teardown() != 0) return EXIT_FAILURE;
 
     return status;
 }
