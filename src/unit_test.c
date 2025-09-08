@@ -92,14 +92,20 @@ static void help(void) {
 
 /* Print all tests in registry */
 static void print_test_list(struct TestFramework* tf) {
-    int i;
-    printf("Available tests (%d):\n", tf->num_tests);
-    printf("--------------------------------------------------\n");
-    for (i = 0; i < tf->num_tests; i++) {
-        printf("  [%3d] %s\n", i + 1, tf->registry[i].name);
+    int m, t, total_tests = 0;
+    printf("\nAvailable tests (%d modules):\n", tf->num_modules);
+    printf("========================================\n");
+    for (m = 0; m < tf->num_modules; m++) {
+        struct TestModule* mod = &tf->registry_modules[m];
+        printf("Module: %s (%d tests)\n", mod->name, mod->size);
+        for (t = 0; t < mod->size; t++) {
+            printf("\t[%2d] %s\n", t + 1, mod->data[t].name);
+            total_tests++;
+        }
+        printf("----------------------------------------\n");
     }
-    printf("--------------------------------------------------\n");
-    printf("Run with: ./tests <test_name>\n");
+    printf("Total tests: %d\n", total_tests);
+    printf("\nRun a specific test: ./tests -t=<test_name>\n\n");
 }
 
 static int parse_jobs_count(const char* key, const char* value, struct Args* out) {
@@ -136,22 +142,24 @@ static int parse_iterations(const char* arg) {
 }
 
 static int parse_target(const char* value, struct TestFramework* tf) {
-    int idx_test;
-    if (tf->args.targets.size > tf->num_tests) {
-        printf("Too many -target arguments (max: %d)\n", tf->num_tests);
+    TestRef i = {/*idx_module=*/0, /*idx_test=*/0};
+    if (tf->args.targets.size >= MAX_ARGS) {
+        printf("Too many -target args (max: %d)\n", MAX_ARGS);
         return -1;
     }
     /* Find test index in the registry */
-    for (idx_test = 0; idx_test < tf->num_tests; idx_test++) {
-        if (strcmp(value, tf->registry[idx_test].name) == 0) break;
+    for (i.group = 0; i.group < tf->num_modules; i.group++) {
+        struct TestModule* module = &tf->registry_modules[i.group];
+        for (i.idx = 0; i.idx < module->size; i.idx++) {
+            if (strcmp(value, module->data[i.idx].name) == 0) {
+                tf->args.targets.slots[tf->args.targets.size] = i;
+                tf->args.targets.size++;
+                return 0;
+            }
+        }
     }
-    if (idx_test == tf->num_tests) {
-        printf("Target test not found '%s'\n", value);
-        return -1;
-    }
-    tf->args.targets.slots[tf->args.targets.size] = idx_test;
-    tf->args.targets.size++;
-    return 0;
+    printf("Target test not found: '%s'\n", value);
+    return -1;
 }
 
 /* Read args; all must be "-key=value" */
@@ -179,29 +187,25 @@ static int read_args(int argc, char** argv, int start, struct TestFramework* tf)
     return 0;
 }
 
-static void run_test(const struct test_entry* t) {
+static void run_test(const struct TestEntry* t) {
     printf("Running %s..\n", t->name);
     t->func();
     printf("%s PASSED\n", t->name);
 }
 
 /* Process tests in sequential order */
-static int run_sequential(struct TestFramework* tf, int run_all) {
-    struct test_entry* t;
-    if (run_all) for (t = tf->registry; t->name; t++) run_test(t);
-    else {
-        /* Run specific targets */
-        int it;
-        for (it = 0; it < tf->args.targets.size; it++) {
-            run_test(&tf->registry[tf->args.targets.slots[it]]);
-        }
+static int run_sequential(struct TestFramework* tf) {
+    int it;
+    for (it = 0; it < tf->args.targets.size; it++) {
+        TestRef* index = &tf->args.targets.slots[it];
+        run_test(&tf->registry_modules[index->group].data[index->idx]);
     }
     return EXIT_SUCCESS;
 }
 
 #if SUPPORTS_CONCURRENCY
 /* Process tests in parallel */
-static int run_concurrent(struct TestFramework* tf, int run_all) {
+static int run_concurrent(struct TestFramework* tf) {
     /* Sub-processes info */
     pid_t workers[MAX_SUBPROCESSES];
     int pipes[MAX_SUBPROCESSES][2];
@@ -210,7 +214,9 @@ static int run_concurrent(struct TestFramework* tf, int run_all) {
     /* Parent process exit status */
     int status;
     /* Loop iterator */
-    int it, it_end;
+    int it;
+    /* Loop ref */
+    TestRef* ref;
     /* Launch worker processes */
     for (it = 0; it < tf->args.num_processes; it++) {
         pid_t pid;
@@ -227,10 +233,10 @@ static int run_concurrent(struct TestFramework* tf, int run_all) {
 
         if (pid == 0) {
             /* Child worker: run tests assigned via pipe */
-            int idx;
+            TestRef tref;
             close(pipes[it][1]); /* Close write end */
-            while (read(pipes[it][0], &idx, sizeof(idx)) == sizeof(idx)) {
-                run_test(&tf->registry[idx]);
+            while (read(pipes[it][0], &tref, sizeof(tref)) == sizeof(tref)) {
+                run_test(&tf->registry_modules[tref.group].data[tref.idx]);
             }
             _exit(EXIT_SUCCESS); /* finish child process */
         } else {
@@ -242,14 +248,9 @@ static int run_concurrent(struct TestFramework* tf, int run_all) {
 
     /* Now that we have all sub-processes, distribute workload in round-robin */
     worker_idx = 0;
-    it_end = run_all ? tf->num_tests : tf->args.targets.size;
-    for (it = 0; it < it_end; it++) {
-        /* If not run_all, take the test from the specified targets */
-        int idx = run_all ? it : tf->args.targets.slots[it];
-        if (write(pipes[worker_idx][1], &idx, sizeof(idx)) == -1) {
-            perror("Error during workload distribution");
-            return EXIT_FAILURE;
-        }
+    for (it = 0; it < tf->args.targets.size; it++) {
+        ref = &tf->args.targets.slots[it];
+        write(pipes[worker_idx][1], ref, sizeof(*ref));
         if (++worker_idx >= tf->args.num_processes) worker_idx = 0;
     }
 
@@ -265,7 +266,7 @@ static int run_concurrent(struct TestFramework* tf, int run_all) {
 static int tf_init(struct TestFramework* tf, int argc, char** argv)
 {
     /* Caller must set tf->registry and tf->num_tests before calling tf_init. */
-    if (tf->registry == NULL || tf->num_tests <= 0) {
+    if (tf->registry_modules == NULL || tf->num_modules <= 0) {
         printf("Internal error: tests registry not provided or empty\n");
         return EXIT_FAILURE;
     }
@@ -323,17 +324,33 @@ static int tf_run(struct TestFramework* tf) {
     /* Process exit status */
     int status;
     /* Test entry iterator */
-    struct test_entry* t;
+    struct TestEntry* t;
     /* Initial test time */
-    int64_t start_time = gettime_i64();
-    /* Whether to run all tests or a subset of them */
-    int run_all = tf->args.targets.size == 0;
+    int64_t start_time = gettime_i64(); /* maybe move this after the slots set */
+
+    /* Populate targets with all tests if none were explicitly specified */
+    if (tf->args.targets.size == 0) {
+        TestRef ref;
+        int slot = 0;
+        for (ref.group = 0; ref.group < tf->num_modules; ref.group++) {
+            struct TestModule* group = &tf->registry_modules[ref.group];
+            for (ref.idx = 0; ref.idx < group->size; ref.idx++) {
+                tf->args.targets.slots[slot++] = ref;
+                if (slot >= MAX_ARGS) {
+                    fprintf(stderr, "Error: Number of tests (%d) exceeds MAX_ARGS (%d). "
+                                    "Increase MAX_ARGS to accommodate all tests.\n", slot, MAX_ARGS);
+                    return EXIT_FAILURE;
+                }
+            }
+        }
+        tf->args.targets.size = slot;
+    }
 
     /* Run test RNG tests (must run before we really initialize the test RNG) */
     /* Note: currently, these tests are executed sequentially because there */
     /* is really only one test. */
     for (t = tf->registry_no_ctx; t->name; t++) {
-        if (run_all) { /* future: support filtering */
+        if (tf->args.targets.size == 0) { /* future: support filtering */
             run_test(t);
         }
     }
@@ -344,10 +361,10 @@ static int tf_run(struct TestFramework* tf) {
 
     /* Check whether to process tests sequentially or concurrently */
     if (tf->args.num_processes == 0) {
-        status = run_sequential(tf, run_all);
+        status = run_sequential(tf);
     } else {
 #if SUPPORTS_CONCURRENCY
-        status = run_concurrent(tf, run_all);
+        status = run_concurrent(tf);
 #else
         fputs("Parallel execution not supported on your system. Running sequentially..\n", stderr);
         status = run_sequential(tf, run_all);

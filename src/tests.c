@@ -7683,13 +7683,13 @@ static void run_cmov_tests(void) {
 }
 
 /* --- Context Independent - Test registry --- */
-static struct test_entry tests_no_ctx[] = {
+static struct TestEntry tests_no_ctx[] = {
     {"xoshiro256pp_tests", run_xoshiro256pp_tests},
     {NULL, NULL}
 };
 
 /* --- Test registry --- */
-static struct test_entry tests[] = {
+static struct TestEntry tests[] = {
     /* selftest tests */
     {"selftest_tests", run_selftest_tests},
 
@@ -7841,14 +7841,18 @@ static int teardown(void) {
 
 int main(int argc, char **argv) {
     struct TestFramework tf;
+    /* Register test cases */
+    struct TestModule tests_by_module[] = {
+            {"general", tests, NUM_TESTS},
+            {NULL, NULL, 0},
+    };
+    tf.registry_modules = tests_by_module;
+    tf.num_modules = sizeof(tests_by_module) / sizeof(tests_by_module[0]) - 1;
+    tf.registry_no_ctx = tests_no_ctx;
+
     /* Add context creation/destruction functions */
     tf.fn_setup = setup;
     tf.fn_teardown = teardown;
-
-    /* Add test cases */
-    tf.registry = tests;
-    tf.num_tests = (int) NUM_TESTS;
-    tf.registry_no_ctx = tests_no_ctx;
 
     /* Init and run framework */
     if (tf_init(&tf, argc, argv) != 0) return EXIT_FAILURE;

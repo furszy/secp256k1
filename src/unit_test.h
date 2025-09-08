@@ -11,8 +11,10 @@
 /* Configurable constants                                    */
 /* --------------------------------------------------------- */
 
-/* Maximum number of command-line arguments */
-#define MAX_ARGS 32
+/* Maximum number of command-line arguments.
+ * Must be at least as large as the total number of tests
+ * to allow specifying all tests individually. */
+#define MAX_ARGS 150
 /* Maximum number of parallel jobs */
 #define MAX_SUBPROCESSES 16
 
@@ -22,17 +24,29 @@
 
 typedef void (*test_fn)(void);
 
-struct test_entry {
+struct TestEntry {
     const char* name;
     test_fn func;
+};
+
+struct TestModule {
+    const char* name;
+    struct TestEntry* data;
+    int size;
 };
 
 typedef int (*setup_ctx_fn)(void);
 typedef int (*teardown_fn)(void);
 
+/* Reference to a test in the registry. Group index and test index */
+typedef struct {
+    int group;
+    int idx;
+} TestRef;
+
 struct Targets {
     /* Target tests indexes */
-    int slots[MAX_ARGS];
+    TestRef slots[MAX_ARGS];
     /* Next available slot */
     int size;
 };
@@ -50,12 +64,12 @@ struct Args {
 struct TestFramework {
     /* Command-line args */
     struct Args args;
-    /* General tests registry */
-    struct test_entry* registry;
-    /* Num of tests */
-    int num_tests;
+    /* Test modules registry */
+    struct TestModule* registry_modules;
+    /* Num of modules */
+    int num_modules;
     /* Registry for tests that require no context setup */
-    struct test_entry* registry_no_ctx;
+    struct TestEntry* registry_no_ctx;
     /* Specific context setup and teardown functions */
     setup_ctx_fn fn_setup;
     teardown_fn fn_teardown;
