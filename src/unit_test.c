@@ -92,19 +92,18 @@ static void help(void) {
 
 /* Print all tests in registry */
 static void print_test_list(struct TestFramework* tf) {
-    int m, t, total_tests = 0;
+    int m, t, total = 0;
     printf("\nAvailable tests (%d modules):\n", tf->num_modules);
     printf("========================================\n");
     for (m = 0; m < tf->num_modules; m++) {
         struct TestModule* mod = &tf->registry_modules[m];
         printf("Module: %s (%d tests)\n", mod->name, mod->size);
         for (t = 0; t < mod->size; t++) {
-            printf("\t[%2d] %s\n", t + 1, mod->data[t].name);
-            total_tests++;
+            printf("\t[%3d] %s\n", total + 1, mod->data[t].name);
+            total++;
         }
         printf("----------------------------------------\n");
     }
-    printf("Total tests: %d\n", total_tests);
     printf("\nRun a specific test: ./tests -t=<test_name>\n\n");
 }
 
@@ -295,13 +294,13 @@ static int tf_init(struct TestFramework* tf, int argc, char** argv)
         /* Check if we need to print help */
         if (argv[1] && strcmp(argv[1], "-help") == 0) {
             help();
-            return EXIT_SUCCESS;
+            exit(EXIT_SUCCESS);
         }
 
         /* Check if we need to print the available tests */
         if (argv[1] && strcmp(argv[1], "-print_tests") == 0) {
             print_test_list(tf);
-            return EXIT_SUCCESS;
+            exit(EXIT_SUCCESS);
         }
 
         /* Compatibility Note: The first two args were the number of iterations and the seed. */
