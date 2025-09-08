@@ -104,7 +104,8 @@ static void print_test_list(struct TestFramework* tf) {
         }
         printf("----------------------------------------\n");
     }
-    printf("\nRun a specific test: ./tests -t=<test_name>\n\n");
+    printf("\nRun specific module: ./tests -t=<module_name>\n");
+    printf("Run specific test: ./tests -t=<test_name>\n\n");
 }
 
 static int parse_jobs_count(const char* key, const char* value, struct Args* out) {
@@ -149,15 +150,19 @@ static int parse_target(const char* value, struct TestFramework* tf) {
     /* Find test index in the registry */
     for (i.group = 0; i.group < tf->num_modules; i.group++) {
         struct TestModule* module = &tf->registry_modules[i.group];
+        int add_all = strcmp(value, module->name) == 0; /* select all from module */
         for (i.idx = 0; i.idx < module->size; i.idx++) {
-            if (strcmp(value, module->data[i.idx].name) == 0) {
+            if (add_all || strcmp(value, module->data[i.idx].name) == 0) {
                 tf->args.targets.slots[tf->args.targets.size] = i;
                 tf->args.targets.size++;
-                return 0;
+                /* Matched a single test, we're done */
+                if (!add_all) return 0;
             }
         }
+        /* If add_all was true, we added all tests in the module, so return */
+        if (add_all) return 0;
     }
-    printf("Target test not found: '%s'\n", value);
+    fprintf(stderr, "Error: target not found: '%s'\n", value);
     return -1;
 }
 
