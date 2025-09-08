@@ -7688,8 +7688,8 @@ static struct TestEntry tests_no_ctx[] = {
     {NULL, NULL}
 };
 
-/* --- Test registry --- */
-static struct TestEntry tests[] = {
+/* --- From here all context dependendent tests --- */
+static struct TestEntry tests_general[] = {
     /* selftest tests */
     {"selftest_tests", run_selftest_tests},
 
@@ -7700,29 +7700,30 @@ static struct TestEntry tests[] = {
 
     /* scratch tests */
     {"scratch_tests", run_scratch_tests},
+};
 
-    /* integer arithmetic tests */
+static struct TestEntry tests_integer[] = {
 #ifdef SECP256K1_WIDEMUL_INT128
     {"int128_tests", run_int128_tests},
 #endif
     {"ctz_tests", run_ctz_tests},
     {"modinv_tests", run_modinv_tests},
     {"inverse_tests", run_inverse_tests},
+};
 
-    /* sorting tests */
-    {"hsort_tests", run_hsort_tests},
-
-    /* hash tests */
+static struct TestEntry tests_hash[] = {
     {"sha256_known_output_tests", run_sha256_known_output_tests},
     {"sha256_counter_tests", run_sha256_counter_tests},
     {"hmac_sha256_tests", run_hmac_sha256_tests},
     {"rfc6979_hmac_sha256_tests", run_rfc6979_hmac_sha256_tests},
     {"tagged_sha256_tests", run_tagged_sha256_tests},
+};
 
-    /* scalar tests */
+static struct TestEntry tests_scalar[] = {
     {"scalar_tests", run_scalar_tests},
+};
 
-    /* field tests */
+static struct TestEntry tests_field[] = {
     {"field_half", run_field_half},
     {"field_misc", run_field_misc},
     {"field_convert", run_field_convert},
@@ -7730,13 +7731,15 @@ static struct TestEntry tests[] = {
     {"fe_mul", run_fe_mul},
     {"sqr", run_sqr},
     {"sqrt", run_sqrt},
+};
 
-    /* group tests */
+static struct TestEntry tests_group[] = {
     {"ge", run_ge},
     {"gej", run_gej},
     {"group_decompress", run_group_decompress},
+};
 
-    /* ecmult tests */
+static struct TestEntry tests_ecmult[] = {
     {"ecmult_pre_g", run_ecmult_pre_g},
     {"wnaf", run_wnaf},
     {"point_times_order", run_point_times_order},
@@ -7747,7 +7750,9 @@ static struct TestEntry tests[] = {
     {"ecmult_const_tests", run_ecmult_const_tests},
     {"ecmult_multi_tests", run_ecmult_multi_tests},
     {"ec_combine", run_ec_combine},
+};
 
+static struct TestEntry tests_ec[] = {
     /* endomorphism tests */
     {"endomorphism_tests", run_endomorphism_tests},
 
@@ -7759,13 +7764,15 @@ static struct TestEntry tests[] = {
 
     /* EC key arithmetic test */
     {"eckey_negate_test", run_eckey_negate_test},
+};
 
+static struct TestEntry tests_ecdh[] = {
 #ifdef ENABLE_MODULE_ECDH
-    /* ecdh tests */
     {"ecdh_tests", run_ecdh_tests},
 #endif
+};
 
-    /* ecdsa tests */
+static struct TestEntry tests_ecdsa[] = {
     {"ec_illegal_argument_tests", run_ec_illegal_argument_tests},
     {"pubkey_comparison", run_pubkey_comparison},
     {"pubkey_sort", run_pubkey_sort},
@@ -7775,37 +7782,46 @@ static struct TestEntry tests[] = {
     {"ecdsa_end_to_end", run_ecdsa_end_to_end},
     {"ecdsa_edge_cases", run_ecdsa_edge_cases},
     {"ecdsa_wycheproof", run_ecdsa_wycheproof},
+};
 
+static struct TestEntry tests_recovery[] = {
 #ifdef ENABLE_MODULE_RECOVERY
     /* ECDSA pubkey recovery tests */
     {"recovery_tests", run_recovery_tests},
 #endif
+};
 
+static struct TestEntry tests_extrakeys[] = {
 #ifdef ENABLE_MODULE_EXTRAKEYS
     {"extrakeys_tests", run_extrakeys_tests},
 #endif
+};
 
+static struct TestEntry tests_schnorrsig[] = {
 #ifdef ENABLE_MODULE_SCHNORRSIG
     {"schnorrsig_tests", run_schnorrsig_tests},
 #endif
+};
 
+static struct TestEntry tests_musig[] = {
 #ifdef ENABLE_MODULE_MUSIG
     {"musig_tests", run_musig_tests},
 #endif
+};
 
+static struct TestEntry tests_ellswift[] = {
 #ifdef ENABLE_MODULE_ELLSWIFT
     {"ellswift_tests", run_ellswift_tests},
 #endif
+};
 
-    /* util tests */
+static struct TestEntry tests_utils[] = {
+    {"hsort_tests", run_hsort_tests},
     {"secp256k1_memczero_test", run_secp256k1_memczero_test},
     {"secp256k1_is_zero_array_test", run_secp256k1_is_zero_array_test},
     {"secp256k1_byteorder_tests", run_secp256k1_byteorder_tests},
     {"cmov_tests", run_cmov_tests},
-    {NULL, NULL}
 };
-
-#define NUM_TESTS (sizeof(tests) / sizeof(tests[0]) - 1)
 
 /* Setup test environment */
 static int setup(void) {
@@ -7839,15 +7855,35 @@ static int teardown(void) {
     return 0;
 }
 
+#define MAKE_TEST_MODULE(name) {\
+    #name, \
+    tests_##name, \
+    sizeof(tests_##name) / sizeof(tests_##name[0]) \
+}
+
 int main(int argc, char **argv) {
     struct TestFramework tf;
     /* Register test cases */
     struct TestModule tests_by_module[] = {
-            {"general", tests, NUM_TESTS},
-            {NULL, NULL, 0},
+        MAKE_TEST_MODULE(general),
+        MAKE_TEST_MODULE(integer),
+        MAKE_TEST_MODULE(hash),
+        MAKE_TEST_MODULE(scalar),
+        MAKE_TEST_MODULE(field),
+        MAKE_TEST_MODULE(group),
+        MAKE_TEST_MODULE(ecmult),
+        MAKE_TEST_MODULE(ec),
+        MAKE_TEST_MODULE(ecdh),
+        MAKE_TEST_MODULE(ecdsa),
+        MAKE_TEST_MODULE(recovery),
+        MAKE_TEST_MODULE(extrakeys),
+        MAKE_TEST_MODULE(schnorrsig),
+        MAKE_TEST_MODULE(musig),
+        MAKE_TEST_MODULE(ellswift),
+        MAKE_TEST_MODULE(utils),
     };
     tf.registry_modules = tests_by_module;
-    tf.num_modules = sizeof(tests_by_module) / sizeof(tests_by_module[0]) - 1;
+    tf.num_modules = sizeof(tests_by_module) / sizeof(tests_by_module[0]);
     tf.registry_no_ctx = tests_no_ctx;
 
     /* Add context creation/destruction functions */
