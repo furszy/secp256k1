@@ -49,6 +49,7 @@ struct TestModule {
 
 typedef int (*setup_ctx_fn)(void);
 typedef int (*teardown_fn)(void);
+typedef void (*run_test_fn)(const struct TestEntry*);
 
 /* Reference to a test in the registry. Group index and test index */
 typedef struct {
@@ -71,6 +72,8 @@ struct Args {
     const char* custom_seed;
     /* Target tests indexes */
     struct Targets targets;
+    /* Enable test execution logging */
+    int logging;
 };
 
 struct TestFramework {
@@ -85,6 +88,8 @@ struct TestFramework {
     /* Specific context setup and teardown functions */
     setup_ctx_fn fn_setup;
     teardown_fn fn_teardown;
+    /* Test runner function (can be customized) */
+    run_test_fn fn_run_test;
 };
 
 /* --------------------------------------------------------- */
