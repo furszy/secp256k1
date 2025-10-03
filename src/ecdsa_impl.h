@@ -192,9 +192,9 @@ static int secp256k1_ecdsa_sig_serialize(unsigned char *sig, size_t *size, const
     return 1;
 }
 
-static int secp256k1_ecdsa_sig_verify(const secp256k1_scalar *sigr, const secp256k1_scalar *sigs, const secp256k1_ge *pubkey, const secp256k1_scalar *message) {
+static int secp256k1_ecdsa_sig_verify_internal(const secp256k1_scalar *sigr, const secp256k1_scalar *sigs, const secp256k1_ge *pubkey, const secp256k1_scalar *message, secp256k1_scalar* sn) {
     unsigned char c[32];
-    secp256k1_scalar sn, u1, u2;
+    secp256k1_scalar u1, u2;
 #if !defined(EXHAUSTIVE_TEST_ORDER)
     secp256k1_fe xr;
 #endif
@@ -205,9 +205,13 @@ static int secp256k1_ecdsa_sig_verify(const secp256k1_scalar *sigr, const secp25
         return 0;
     }
 
-    secp256k1_scalar_inverse_var(&sn, sigs);
-    secp256k1_scalar_mul(&u1, &sn, message);
-    secp256k1_scalar_mul(&u2, &sn, sigr);
+    VERIFY_CHECK(sn);
+    /* Compute inverse only if needed */
+    if (secp256k1_scalar_is_zero(sn)) {
+        secp256k1_scalar_inverse_var(sn, sigs);
+    }
+    secp256k1_scalar_mul(&u1, sn, message);
+    secp256k1_scalar_mul(&u2, sn, sigr);
     secp256k1_gej_set_ge(&pubkeyj, pubkey);
     secp256k1_ecmult(&pr, &pubkeyj, &u2, &u1);
     if (secp256k1_gej_is_infinity(&pr)) {
@@ -261,6 +265,72 @@ static int secp256k1_ecdsa_sig_verify(const secp256k1_scalar *sigr, const secp25
     }
     return 0;
 #endif
+}
+
+static int secp256k1_ecdsa_sig_verify(const secp256k1_scalar *sigr, const secp256k1_scalar *sigs, const secp256k1_ge *pubkey, const secp256k1_scalar *message) {
+    secp256k1_scalar sn = secp256k1_scalar_zero;
+    return secp256k1_ecdsa_sig_verify_internal(sigr, sigs, pubkey, message, &sn);
+}
+
+/* todo: Ensure we haven't multiplied by its inverse, because that would cancel out 's' */
+/* if (secp256k1_scalar_is_one(&s_product)) return 0; */
+static int secp256k1_batch_inv(const secp256k1_scalar* nums, size_t size, secp256k1_scalar* res) {
+    size_t it;
+    secp256k1_scalar inv_total, backwards_ladder = secp256k1_scalar_one;
+    secp256k1_scalar* ptr;
+    if (size == 0) return 0;
+
+    /* Multiply elements and cache each partial product */
+    res[0] = nums[0];
+    for (it = 1; it < size; it++) {
+        secp256k1_scalar_mul(&res[it], &res[it - 1], &nums[it]);
+    }
+
+    /* Invert the total product */
+    secp256k1_scalar_inverse_var(&inv_total, &res[size - 1]);
+
+    /* Backward pass to compute inverses */
+    it = size;
+    while (it-- > 0) {
+        if (it == 0) {
+            secp256k1_scalar_mul(&res[0], &inv_total, &backwards_ladder);
+        } else {
+            ptr = &res[it];
+            secp256k1_scalar_mul(ptr, &inv_total, &res[it - 1]);
+            secp256k1_scalar_mul(ptr, ptr, &backwards_ladder);
+        }
+        secp256k1_scalar_mul(&backwards_ladder, &backwards_ladder, &nums[it]);
+    }
+
+    return 1;
+}
+
+
+/* TODO: Ensure all vectors have the same size */
+static int secp256k1_batch_ecdsa_sig_verify(const secp256k1_scalar* vec_r, const secp256k1_scalar* vec_s, const secp256k1_ge* vec_pubkey,
+                                            const secp256k1_scalar* vec_message, size_t size, secp256k1_scalar* scratch_space) {
+    size_t it;
+    /* 1) Multiply all 's' first, so we can compute the inverses of them all at once */
+    for (it = 0; it < size; it++) {
+        /* Ensure that none of the 's' are 0 to apply batch inversion */
+        const secp256k1_scalar* s = &vec_s[it];
+        if (secp256k1_scalar_is_zero(s)) {
+            return 0;
+        }
+    }
+
+    /* 2) Compute inverse */
+    if (!secp256k1_batch_inv(vec_s, size, scratch_space)) {
+        return 0;
+    }
+
+    /* 3) Verify each equation independently */
+    for (it = 0; it < size; it++) {
+        if (!secp256k1_ecdsa_sig_verify_internal(&vec_r[it], &vec_s[it], &vec_pubkey[it], &vec_message[it], &scratch_space[it])) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 static int secp256k1_ecdsa_sig_sign(const secp256k1_ecmult_gen_context *ctx, secp256k1_scalar *sigr, secp256k1_scalar *sigs, const secp256k1_scalar *seckey, const secp256k1_scalar *message, const secp256k1_scalar *nonce, int *recid) {
