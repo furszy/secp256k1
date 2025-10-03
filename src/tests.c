@@ -7679,6 +7679,237 @@ static void run_cmov_tests(void) {
     ge_storage_cmov_test();
 }
 
+static void print_hex(unsigned char* data, size_t size) {
+    size_t i;
+    printf("0x");
+    for (i = 0; i < size; i++) {
+        printf("%02x", data[i]);
+    }
+    printf("\n");
+}
+
+static void print_hex_scalar(secp256k1_scalar* data) {
+    unsigned char s[32];
+    secp256k1_scalar_get_b32(s, data);
+    print_hex(s, 32);
+}
+
+static void run_batch_inversion_tests(void) {
+    secp256k1_scalar nums[50];
+    int i;
+    for (i = 0; i < 50; i++) testutil_random_scalar_order_test(&nums[i]);
+
+    {
+        /* Empty array returns failure */
+        secp256k1_scalar inv_res[1];
+        CHECK(!secp256k1_batch_inv(NULL, 0, inv_res));
+    }
+
+
+    {
+        /* Test inverting just one element */
+        secp256k1_scalar inv_a, inv_b;
+        secp256k1_scalar_inverse_var(&inv_a, &nums[0]);
+        CHECK(secp256k1_batch_inv(&nums[0], 1, &inv_b));
+        CHECK(secp256k1_scalar_eq(&inv_a, &inv_b));
+    }
+
+    {
+        /* Test inverting the entire vector */
+        secp256k1_scalar inv_res[50];
+        CHECK(secp256k1_batch_inv(nums, 50, inv_res));
+        for (i = 0; i < 50; i++) {
+            secp256k1_scalar inv;
+            secp256k1_scalar_inverse_var(&inv, &nums[i]);
+            CHECK(secp256k1_scalar_eq(&inv, &inv_res[i]));
+        }
+    }
+
+
+    {
+        /* Test inverting all ones (should do nothing..) */
+        secp256k1_scalar ones[10];
+        secp256k1_scalar inv_res[10];
+        int j;
+        for (j = 0; j < 10; j++) ones[j] = secp256k1_scalar_one;
+
+        CHECK(secp256k1_batch_inv(ones, 10, inv_res));
+        for (j = 0; j < 10; j++) {
+            CHECK(secp256k1_scalar_eq(&inv_res[j], &secp256k1_scalar_one));
+        }
+    }
+
+    {
+        /* Test inverting with a duplicated element */
+        secp256k1_scalar repeated[5];
+        secp256k1_scalar inv_res[5];
+        int j;
+        for (j = 0; j < 5; j++) testutil_random_scalar_order_test(&repeated[j]);
+
+        /* Duplicate element */
+        repeated[3] = repeated[1];
+
+        CHECK(secp256k1_batch_inv(repeated, 5, inv_res));
+        for (j = 0; j < 5; j++) {
+            secp256k1_scalar inv;
+            secp256k1_scalar_inverse_var(&inv, &repeated[j]);
+            CHECK(secp256k1_scalar_eq(&inv, &inv_res[j]));
+        }
+    }
+
+    {
+        /* Large vector inversion */
+        secp256k1_scalar nums_large[10000];
+        secp256k1_scalar inv_res[10000];
+        int j;
+        for (j = 0; j < 10000; j++) testutil_random_scalar_order_test(&nums_large[j]);
+        CHECK(secp256k1_batch_inv(nums_large, 10000, inv_res));
+        for (j = 0; j < 10000; j++) {
+            secp256k1_scalar inv;
+            secp256k1_scalar_inverse_var(&inv, &nums_large[j]);
+            CHECK(secp256k1_scalar_eq(&inv, &inv_res[j]));
+        }
+    }
+}
+
+#define VERIF_SIZE 200000
+
+static void run_batch_ecdsa_sig_verif_tests(void) {
+    int it;
+    /* allocate large arrays on the heap to avoid stack overflow */
+    secp256k1_scalar *vec_sk    = malloc(sizeof(secp256k1_scalar) * VERIF_SIZE);
+    secp256k1_scalar *vec_msg   = malloc(sizeof(secp256k1_scalar) * VERIF_SIZE);
+    secp256k1_scalar *vec_nonce = malloc(sizeof(secp256k1_scalar) * VERIF_SIZE);
+    secp256k1_ge     *vec_pk    = malloc(sizeof(secp256k1_ge)     * VERIF_SIZE);
+    secp256k1_scalar *vec_r     = malloc(sizeof(secp256k1_scalar) * VERIF_SIZE);
+    secp256k1_scalar *vec_s     = malloc(sizeof(secp256k1_scalar) * VERIF_SIZE);
+    secp256k1_scalar *scratch_space = malloc(sizeof(secp256k1_scalar) * VERIF_SIZE);
+
+    secp256k1_scalar base_msg;
+
+    if (!vec_sk || !vec_msg || !vec_nonce || !vec_pk || !vec_r || !vec_s) {
+        /* handle oom; tests typically abort on allocation failure */
+        fprintf(stderr, "OOM allocating verification buffers\n");
+        abort();
+    }
+
+    {
+        /* Hash message and encode it as a scalar */
+        /* Same message for every signature */
+        unsigned char raw_msg[11] = "Hola mundo!";
+        unsigned char out_hash[32];
+        secp256k1_sha256 sha256;
+        secp256k1_sha256_initialize(&sha256);
+        secp256k1_sha256_write(&sha256, raw_msg, 11);
+        secp256k1_sha256_finalize(&sha256, out_hash);
+
+        /* Print msg hash */
+        /* print_hex(out_hash, 32); */
+
+        /* Set message scalar from hash */
+        secp256k1_scalar_set_b32(&base_msg, out_hash, NULL);
+    }
+
+    /* Create signatures */
+    for (it = 0; it < VERIF_SIZE; it++) {
+        secp256k1_scalar *sk, *msg, *nonce, *r, *s;
+        secp256k1_ge *pk;
+
+        sk = &vec_sk[it];
+        msg = &vec_msg[it];
+        nonce = &vec_nonce[it];
+        pk = &vec_pk[it];
+        r = &vec_r[it];
+        s = &vec_s[it];
+
+        /* Generate sk */
+        testutil_random_scalar_order_test(sk);
+
+        {
+            /* Obtain public key */
+            secp256k1_gej pk_jacobian;
+            secp256k1_ecmult_gen(&CTX->ecmult_gen_ctx, &pk_jacobian, sk);
+            secp256k1_ge_set_gej_var(pk, &pk_jacobian);
+        }
+
+        /* Generate random nonce */
+        testutil_random_scalar_order_test(nonce);
+
+        /* Set message scalar for this entry (same base_msg for all) */
+        *msg = base_msg;
+
+        /* Sign */
+        CHECK(secp256k1_ecdsa_sig_sign(&CTX->ecmult_gen_ctx, r, s, sk, msg, nonce, NULL));
+    }
+
+    /* Verify signatures */
+    /*
+    for (it = 0; it < VERIF_SIZE; it++) {
+        CHECK(secp256k1_ecdsa_sig_verify(&vec_r[it], &vec_s[it], &vec_pk[it], &vec_msg[it]));
+    }
+    */
+    /* batch inversion alone */
+    CHECK(secp256k1_batch_ecdsa_sig_verify(vec_r, vec_s, vec_pk, vec_msg, VERIF_SIZE, scratch_space));
+
+
+    /* cleanup */
+    free(vec_sk);
+    free(vec_msg);
+    free(vec_nonce);
+    free(vec_pk);
+    free(vec_r);
+    free(vec_s);
+    free(scratch_space);
+}
+
+
+
+static void old_test(void) {
+    secp256k1_scalar sk, msg, nonce;
+    secp256k1_ge pk;
+    secp256k1_scalar r, s; /* single signature */
+    testutil_random_scalar_order_test(&sk);
+
+    {
+        /* Obtain public key */
+        secp256k1_gej pk_jacobian;
+        secp256k1_ecmult_gen(&CTX->ecmult_gen_ctx, &pk_jacobian, &sk);
+        secp256k1_ge_set_gej_var(&pk, &pk_jacobian);
+    }
+
+    {
+        /* Print secret key */
+        unsigned char buff[32];
+        secp256k1_scalar_get_b32(buff, &sk);
+        print_hex(buff, 32);
+    }
+
+    {
+        /* Hash message and encode it as a scalar */
+        unsigned char raw_msg[11] = "Hola mundo!";
+        unsigned char out_hash;
+        secp256k1_sha256 sha256;
+        secp256k1_sha256_initialize(&sha256);
+        secp256k1_sha256_write(&sha256, raw_msg, 11);
+        secp256k1_sha256_finalize(&sha256, &out_hash);
+
+        /* Print msg hash */
+        print_hex(&out_hash, 32);
+    }
+
+    /* Generate random nonce */
+    testutil_random_scalar_order_test(&nonce);
+
+    /* Sig + Verif */
+    CHECK(secp256k1_ecdsa_sig_sign(&CTX->ecmult_gen_ctx, &r, &s, &sk, &msg, &nonce, NULL));
+    CHECK(secp256k1_ecdsa_sig_verify(&r, &s, &pk, &msg));
+
+    {
+        secp256k1_scalar scratch_space[1];
+        CHECK(secp256k1_batch_ecdsa_sig_verify(&r, &s, &pk, &msg, 1, scratch_space));
+    }
+}
+
 /* --------------------------------------------------------- */
 /* Test Registry                                             */
 /* --------------------------------------------------------- */
@@ -7705,6 +7936,8 @@ static const struct tf_test_entry tests_integer[] = {
     CASE(ctz_tests),
     CASE(modinv_tests),
     CASE(inverse_tests),
+    CASE(batch_inversion_tests),
+    CASE(batch_ecdsa_sig_verif_tests),
 };
 
 static const struct tf_test_entry tests_hash[] = {
