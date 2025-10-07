@@ -100,6 +100,88 @@ static void bench_verify(void* arg, int iters) {
     }
 }
 
+typedef struct {
+    secp256k1_context *ctx;
+    secp256k1_ecdsa_signature *sigs;
+    secp256k1_pubkey *pubkeys;
+    unsigned char **msgs;
+    int batch_size;
+    void* workspace;
+} bench_batch_data;
+
+static void setup_batch(void* arg) {
+    int j, k;
+    unsigned char** keys;
+    bench_batch_data* data = (bench_batch_data*) arg;
+
+    data->pubkeys = malloc(sizeof(secp256k1_pubkey) * data->batch_size);
+    data->sigs = malloc(sizeof(secp256k1_ecdsa_signature) * data->batch_size);
+
+    /* Allocate arrays of pointers to 32-byte messages and keys */
+    data->msgs = malloc(sizeof(unsigned char*) * data->batch_size);
+    keys = malloc(sizeof(unsigned char*) * data->batch_size);
+
+    for (j = 0; j < data->batch_size; j++) {
+        data->msgs[j] = malloc(32);
+        keys[j] = malloc(32);
+
+        for (k = 0; k < 32; k++) {
+            data->msgs[j][k] = (unsigned char)(k + j);  /* each message is unique */
+            keys[j][k] = (unsigned char)(k + 1 + j);   /* each key is unique */
+        }
+
+        /* Create pubkey and signature */
+        CHECK(secp256k1_ec_pubkey_create(data->ctx, &data->pubkeys[j], keys[j]));
+        CHECK(secp256k1_ecdsa_sign(data->ctx, &data->sigs[j], data->msgs[j], keys[j], NULL, NULL));
+    }
+
+    /* allocate extra space */
+    data->workspace = malloc(secp256k1_ecdsa_batch_verify_workspace_size(data->batch_size));
+
+    for (j = 0; j < data->batch_size; j++) {
+        free(keys[j]);
+    }
+    free(keys);
+}
+
+static void teardown_batch(void* arg) {
+    int i;
+    bench_batch_data* data = (bench_batch_data*) arg;
+    for (i = 0; i < data->batch_size; i++) free(data->msgs[i]);
+    free(data->msgs);
+    free(data->pubkeys);
+    free(data->sigs);
+    free(data->workspace);
+}
+
+static void bench_batch_verify(void* arg, int iters) {
+    int i;
+    bench_batch_data* d = (bench_batch_data*)arg;
+    /* Use aligned allocation for safety */
+    void* workspace = aligned_alloc(8, secp256k1_ecdsa_batch_verify_workspace_size(d->batch_size));
+    for (i = 0; i < iters; i++) {
+        CHECK(secp256k1_ecdsa_batch_verify(
+                d->ctx,
+                d->sigs,
+                (const unsigned char **)d->msgs,
+                d->pubkeys,
+                d->batch_size,
+                workspace
+        ));
+    }
+}
+
+static void bench_single_verify(void* arg, int iters) {
+    int i, j;
+    bench_batch_data* data = (bench_batch_data*)arg;
+    for (i = 0; i < iters; i++) {
+        for (j = 0; j < data->batch_size; j++) {
+            CHECK(secp256k1_ecdsa_verify(data->ctx, &data->sigs[j], data->msgs[j], &data->pubkeys[j]));
+        }
+    }
+}
+
+
 static void bench_sign_setup(void* arg) {
     int i;
     bench_data *data = (bench_data*)arg;
@@ -181,7 +263,7 @@ int main(int argc, char** argv) {
     int iters = get_iters(default_iters);
 
     /* Check for invalid user arguments */
-    char* valid_args[] = {"ecdsa", "verify", "ecdsa_verify", "sign", "ecdsa_sign", "ecdh", "recover",
+    char* valid_args[] = {"ecdsa", "verify", "ecdsa_verify", "ecdsa_batch_verify" , "sign", "ecdsa_sign", "ecdh", "recover",
                          "ecdsa_recover", "schnorrsig", "schnorrsig_verify", "schnorrsig_sign", "ec",
                          "keygen", "ec_keygen", "ellswift", "encode", "ellswift_encode", "decode",
                          "ellswift_decode", "ellswift_keygen", "ellswift_ecdh"};
@@ -254,6 +336,15 @@ int main(int argc, char** argv) {
 
     print_output_table_header_row();
     if (d || have_flag(argc, argv, "ecdsa") || have_flag(argc, argv, "verify") || have_flag(argc, argv, "ecdsa_verify")) run_benchmark("ecdsa_verify", bench_verify, NULL, NULL, &data, 10, iters);
+    if (d || have_flag(argc, argv, "ecdsa") || have_flag(argc, argv, "verify") || have_flag(argc, argv, "ecdsa_batch_verify")) {
+        bench_batch_data batch_data;
+        batch_data.batch_size = 10000;
+        batch_data.ctx = data.ctx;
+        setup_batch(&batch_data);
+        run_benchmark("ecdsa_batch_verify", bench_batch_verify, NULL, NULL, &batch_data, 10, iters);
+        run_benchmark("bench_single_verify", bench_single_verify, NULL, NULL, &batch_data, 10, iters);
+        teardown_batch(&batch_data);
+    }
 
     if (d || have_flag(argc, argv, "ecdsa") || have_flag(argc, argv, "sign") || have_flag(argc, argv, "ecdsa_sign")) run_benchmark("ecdsa_sign", bench_sign_run, bench_sign_setup, NULL, &data, 10, iters);
     if (d || have_flag(argc, argv, "ec") || have_flag(argc, argv, "keygen") || have_flag(argc, argv, "ec_keygen")) run_benchmark("ec_keygen", bench_keygen_run, bench_keygen_setup, NULL, &data, 10, iters);
