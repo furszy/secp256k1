@@ -463,6 +463,51 @@ int secp256k1_ecdsa_verify(const secp256k1_context* ctx, const secp256k1_ecdsa_s
             secp256k1_ecdsa_sig_verify(&r, &s, &q, &m));
 }
 
+/* Calculate required workspace size for a given batch size */
+size_t secp256k1_ecdsa_batch_verify_workspace_size(int batch_size) {
+    /* We need:
+       - vec_r, vec_s, vec_msg, extra_space -> each batch size scalars
+       - vec_pk -> batch size points
+       Ensure 8-byte alignment */
+    size_t size = sizeof(secp256k1_scalar) * (3 * batch_size + batch_size) /* vec_r, vec_s, vec_msg, extra_space */
+                  + sizeof(secp256k1_ge) * batch_size;                    /* vec_pk */
+    /* Round up to multiple of 8 for alignment */
+    size = (size + 7) & ~((size_t)7);
+    return size;
+}
+
+int secp256k1_ecdsa_batch_verify(const secp256k1_context* ctx, const secp256k1_ecdsa_signature *vec_sig, const unsigned char **vec_msghash32, const secp256k1_pubkey *vec_pubkey, int size, void* work_space) {
+    secp256k1_scalar *vec_r, *vec_s, *vec_msg, *extra_space;
+    secp256k1_ge *vec_pk;
+    int i;
+
+    /* Use workspace */
+    uintptr_t addr = (uintptr_t)work_space;
+    addr = (addr + 7) & ~((uintptr_t)7);  /* Align to 8 bytes */
+    vec_r = (secp256k1_scalar*)addr;
+    vec_s       = vec_r + size;
+    vec_msg     = vec_s + size;
+    extra_space = vec_msg + size;
+    vec_pk      = (secp256k1_ge*) (extra_space + size);
+
+
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(vec_msghash32 != NULL);
+    ARG_CHECK(vec_sig != NULL);
+    ARG_CHECK(vec_pubkey != NULL);
+    ARG_CHECK(size > 0);
+
+    for (i = 0; i < size; i++) {
+        secp256k1_scalar *s = &vec_s[i];
+        secp256k1_scalar_set_b32(&vec_msg[i], vec_msghash32[i], NULL);
+        secp256k1_ecdsa_signature_load(ctx, &vec_r[i], s, &vec_sig[i]);
+        if (secp256k1_scalar_is_high(s)) return 0;
+        if (!secp256k1_pubkey_load(ctx, &vec_pk[i], &vec_pubkey[i])) return 0;
+    }
+
+    return secp256k1_batch_ecdsa_sig_verify(vec_r, vec_s, vec_pk, vec_msg, size, extra_space);
+}
+
 static SECP256K1_INLINE void buffer_append(unsigned char *buf, unsigned int *offset, const void *data, unsigned int len) {
     memcpy(buf + *offset, data, len);
     *offset += len;
