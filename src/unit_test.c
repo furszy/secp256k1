@@ -27,6 +27,7 @@ static int parse_iterations(const char* key, const char* value, struct tf_framew
 static int parse_seed(const char* key, const char* value, struct tf_framework* tf);
 static int parse_target(const char* key, const char* value, struct tf_framework* tf);
 static int parse_logging(const char* key, const char* value, struct tf_framework* tf);
+static int parse_list_tests(const char* key, const char* value, struct tf_framework* tf);
 
 /* Mapping table: key -> handler */
 typedef int (*ArgHandler)(const char* key, const char* value, struct tf_framework* tf);
@@ -48,6 +49,7 @@ static struct ArgMap arg_map[] = {
     { "i", parse_iterations }, { "iterations", parse_iterations },
     { "seed", parse_seed },
     { "log", parse_logging },
+    { "list_tests", parse_list_tests },
     { NULL, NULL } /* sentinel */
 };
 
@@ -100,21 +102,36 @@ static void help(void) {
 }
 
 /* Print all tests in registry */
-static void print_test_list(struct tf_framework* tf) {
+static void print_test_list(struct tf_framework* tf, int print_type) {
     int m, t, total = 0;
-    printf("\nAvailable tests (%d modules):\n", tf->num_modules);
-    printf("========================================\n");
-    for (m = 0; m < tf->num_modules; m++) {
-        const struct tf_test_module* mod = &tf->registry_modules[m];
-        printf("Module: %s (%d tests)\n", mod->name, mod->size);
-        for (t = 0; t < mod->size; t++) {
-            printf("\t[%3d] %s\n", total + 1, mod->data[t].name);
-            total++;
+    if (print_type == 1) {
+        printf("\nAvailable tests (%d modules):\n", tf->num_modules);
+        printf("========================================\n");
+        for (m = 0; m < tf->num_modules; m++) {
+            const struct tf_test_module *mod = &tf->registry_modules[m];
+            printf("Module: %s (%d tests)\n", mod->name, mod->size);
+            for (t = 0; t < mod->size; t++) {
+                printf("\t[%3d] %s\n", total + 1, mod->data[t].name);
+                total++;
+            }
+            printf("----------------------------------------\n");
         }
-        printf("----------------------------------------\n");
+        printf("\nRun specific module: ./tests -t=<module_name>\n");
+        printf("Run specific test: ./tests -t=<test_name>\n\n");
+        return;
     }
-    printf("\nRun specific module: ./tests -t=<module_name>\n");
-    printf("Run specific test: ./tests -t=<test_name>\n\n");
+
+    if (print_type == 2) {
+        for (m = 0; m < tf->num_modules; m++) {
+            const struct tf_test_module *mod = &tf->registry_modules[m];
+            for (t = 0; t < mod->size; t++) {
+                printf("%s", mod->data[t].name);
+                if (t != mod->size - 1) {
+                    printf(",");
+                }
+            }
+        }
+    }
 }
 
 static int parse_jobs_count(const char* key, const char* value, struct tf_framework* tf) {
@@ -152,6 +169,15 @@ static int parse_seed(const char* key, const char* value, struct tf_framework* t
 static int parse_logging(const char* key, const char* value, struct tf_framework* tf) {
     UNUSED(key);
     tf->args.logging = value && strcmp(value, "1") == 0;
+    return 0;
+}
+
+static int parse_list_tests(const char* key, const char* value, struct tf_framework* tf) {
+    int output_type;
+    UNUSED(key);
+    if (!value) return 1;
+    output_type = (int) strtol(value, NULL, 0);
+    tf->args.list_tests = output_type == 2 ? 2 : 1;
     return 0;
 }
 
@@ -240,7 +266,7 @@ static int read_args(int argc, char** argv, int start, struct tf_framework* tf) 
                 return 0;
             }
             if (strcmp(key, "l") == 0 || strcmp(key, "list_tests") == 0) {
-                tf->args.list_tests = 1;
+                tf->args.list_tests = 1;  /* Print on Human-Readable-Format */
                 return 0;
             }
             fprintf(stderr, "Invalid arg '%s': must be -k=value or --key=value\n", raw_arg);
@@ -398,8 +424,8 @@ static int tf_init(struct tf_framework* tf, int argc, char** argv)
             exit(EXIT_SUCCESS);
         }
 
-        if (tf->args.list_tests) {
-            print_test_list(tf);
+        if (tf->args.list_tests != 0) {
+            print_test_list(tf, tf->args.list_tests);
             exit(EXIT_SUCCESS);
         }
     }

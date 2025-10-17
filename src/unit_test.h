@@ -78,7 +78,7 @@ struct tf_args {
     const char* custom_seed;
     /* Whether to print the help msg */
     int help;
-    /* Whether to print the tests list msg */
+    /* Whether to print the tests list msg, 1=HRF, 2=Comma_separated */
     int list_tests;
     /* Target tests indexes */
     struct tf_targets targets;
