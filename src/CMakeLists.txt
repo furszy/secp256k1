@@ -146,9 +146,29 @@ if(SECP256K1_BUILD_TESTS)
 
   function(add_executable_and_tests bin_name verify_definition)
     add_executable(${bin_name} tests.c)
-    target_link_libraries(${bin_name} secp256k1_precomputed secp256k1_asm)
+    target_link_libraries(${bin_name} PRIVATE secp256k1_precomputed secp256k1_asm)
     target_compile_definitions(${bin_name} PRIVATE ${verify_definition} ${TEST_DEFINITIONS})
     add_test(NAME secp256k1_${bin_name} COMMAND ${bin_name})
+
+    # Generate the test list at configure time
+    set(testlist_file "${CMAKE_CURRENT_BINARY_DIR}/${bin_name}_testlist.txt")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+
+    # Print location of the tests list file
+    message(STATUS "Test list file for ${bin_name} will be generated at: ${testlist_file}")
+
+    # Custom command: run binary with --list_tests=2 to obtain list of tests separated by comma
+    add_custom_command(
+            OUTPUT ${testlist_file}
+            COMMAND ${CMAKE_COMMAND} -E echo "Generating test list at: ${testlist_file}"
+            COMMAND ${CMAKE_COMMAND} -E remove -f ${testlist_file}
+            COMMAND ${CMAKE_COMMAND} -E env SHELL=/bin/sh $<TARGET_FILE:${bin_name}> --list_tests=2 > ${testlist_file}
+            DEPENDS ${bin_name}
+    )
+
+    # Custom target to trigger generation
+    add_custom_target(${bin_name}_discover DEPENDS ${testlist_file})
+
   endfunction()
 
   add_executable_and_tests(noverify_tests "")
