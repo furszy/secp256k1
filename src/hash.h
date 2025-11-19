@@ -21,6 +21,9 @@ static void secp256k1_sha256_write(secp256k1_sha256 *hash, const unsigned char *
 static void secp256k1_sha256_finalize(secp256k1_sha256 *hash, unsigned char *out32);
 static void secp256k1_sha256_clear(secp256k1_sha256 *hash);
 
+/* TODO: Add description */
+static int secp256k1_set_sha256_transform(fn_sha256_transform fn_transform);
+
 typedef struct {
     secp256k1_sha256 inner, outer;
 } secp256k1_hmac_sha256;
