@@ -14,6 +14,42 @@
 #include <stdint.h>
 #include <string.h>
 
+/* Default SHA-256 transform - internal implementation */
+static void secp256k1_sha256_transform(uint32_t* s, const unsigned char* buf, size_t n);
+static void secp256k1_sha256_write_impl(secp256k1_sha256 *hash, const unsigned char *data, size_t len, fn_sha256_transform fn_transform);
+
+static int secp256k1_sha256_check_transform(fn_sha256_transform fn_transform) {
+    secp256k1_sha256 sha256;
+    unsigned char out_curr[32], out_new[32];
+    unsigned char msg[24] = "secp256k1_verif_round_i";
+    int i;
+    /* Compare hashes */
+    for (i = 0; i < 10; i++) {
+        msg[23] = (char) i;
+        /* Current one */
+        secp256k1_sha256_initialize(&sha256);
+        secp256k1_sha256_write(&sha256, msg, 24);
+        secp256k1_sha256_finalize(&sha256, out_curr);
+
+        /* New one */
+        secp256k1_sha256_initialize(&sha256);
+        secp256k1_sha256_write_impl(&sha256, msg, 24, fn_transform);
+        secp256k1_sha256_finalize(&sha256, out_new);
+
+        /* Fail if it is not the same */
+        if (memcmp(out_curr, out_new, 32) != 0) return 0;
+    }
+    return 1;
+}
+
+/* Custom SHA-256 transform step */
+static fn_sha256_transform g_fn_sha256_transform = secp256k1_sha256_transform;
+static int secp256k1_set_sha256_transform(fn_sha256_transform fn_transform) {
+    if (!secp256k1_sha256_check_transform(fn_transform)) return 0;
+    g_fn_sha256_transform = fn_transform ? fn_transform : secp256k1_sha256_transform;
+    return 1;
+}
+
 #define Ch(x,y,z) ((z) ^ ((x) & ((y) ^ (z))))
 #define Maj(x,y,z) (((x) & (y)) | ((z) & ((x) | (y))))
 #define Sigma0(x) (((x) >> 2 | (x) << 30) ^ ((x) >> 13 | (x) << 19) ^ ((x) >> 22 | (x) << 10))
@@ -41,7 +77,7 @@ static void secp256k1_sha256_initialize(secp256k1_sha256 *hash) {
 }
 
 /** Perform one SHA-256 transformation, processing 16 big endian 32-bit words. */
-static void secp256k1_sha256_transform(uint32_t* s, const unsigned char* buf) {
+static void secp256k1_sha256_transform_impl(uint32_t* s, const unsigned char* buf) {
     uint32_t a = s[0], b = s[1], c = s[2], d = s[3], e = s[4], f = s[5], g = s[6], h = s[7];
     uint32_t w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15;
 
@@ -123,7 +159,11 @@ static void secp256k1_sha256_transform(uint32_t* s, const unsigned char* buf) {
     s[7] += h;
 }
 
-static void secp256k1_sha256_write(secp256k1_sha256 *hash, const unsigned char *data, size_t len) {
+static void secp256k1_sha256_transform(uint32_t* s, const unsigned char* buf, size_t n) {
+    while (n--) secp256k1_sha256_transform_impl(s, buf);
+}
+
+static void secp256k1_sha256_write_impl(secp256k1_sha256 *hash, const unsigned char *data, size_t len, fn_sha256_transform fn_transform) {
     size_t bufsize = hash->bytes & 0x3F;
     hash->bytes += len;
     VERIFY_CHECK(hash->bytes >= len);
@@ -133,13 +173,17 @@ static void secp256k1_sha256_write(secp256k1_sha256 *hash, const unsigned char *
         memcpy(hash->buf + bufsize, data, chunk_len);
         data += chunk_len;
         len -= chunk_len;
-        secp256k1_sha256_transform(hash->s, hash->buf);
+        fn_transform(hash->s, hash->buf, 1);
         bufsize = 0;
     }
     if (len) {
         /* Fill the buffer with what remains. */
         memcpy(hash->buf + bufsize, data, len);
     }
+}
+
+static void secp256k1_sha256_write(secp256k1_sha256 *hash, const unsigned char *data, size_t len) {
+    secp256k1_sha256_write_impl(hash, data, len, g_fn_sha256_transform);
 }
 
 static void secp256k1_sha256_finalize(secp256k1_sha256 *hash, unsigned char *out32) {
