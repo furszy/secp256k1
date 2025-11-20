@@ -10,10 +10,13 @@
 #include <stdlib.h>
 #include <stdint.h>
 
+typedef void (*sha256_transform_callback)(uint32_t* s, const unsigned char* chunk, size_t blocks);
+
 typedef struct {
     uint32_t s[8];
     unsigned char buf[64];
     uint64_t bytes;
+    sha256_transform_callback fn_transform;
 } secp256k1_sha256;
 
 static void secp256k1_sha256_initialize(secp256k1_sha256 *hash);

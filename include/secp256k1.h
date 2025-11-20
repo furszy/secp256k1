@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+#include <stdint.h>
 
 /** Unless explicitly stated all pointer arguments must not be NULL.
  *
@@ -401,6 +402,12 @@ SECP256K1_API void secp256k1_context_set_error_callback(
     secp256k1_context *ctx,
     void (*fun)(const char *message, void *data),
     const void *data
+) SECP256K1_ARG_NONNULL(1);
+
+/* TODO: Complete me.. */
+SECP256K1_API void secp256k1_context_set_sha256_transform_callback(
+        secp256k1_context* ctx,
+        void (*sha256_transform_callback)(uint32_t* s, const unsigned char* chunk, size_t blocks)
 ) SECP256K1_ARG_NONNULL(1);
 
 /** Parse a variable-length public key into the pubkey object.

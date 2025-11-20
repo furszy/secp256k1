@@ -13,11 +13,11 @@
 /* Checks that a bit flip in the n_flip-th argument (that has n_bytes many
  * bytes) changes the hash function
  */
-static void nonce_function_bip340_bitflip(unsigned char **args, size_t n_flip, size_t n_bytes, size_t msglen, size_t algolen) {
+static void nonce_function_bip340_bitflip(const secp256k1_context* ctx, unsigned char **args, size_t n_flip, size_t n_bytes, size_t msglen, size_t algolen) {
     unsigned char nonces[2][32];
-    CHECK(nonce_function_bip340(nonces[0], args[0], msglen, args[1], args[2], args[3], algolen, args[4]) == 1);
+    CHECK(nonce_function_bip340(ctx, nonces[0], args[0], msglen, args[1], args[2], args[3], algolen, args[4]) == 1);
     testrand_flip(args[n_flip], n_bytes);
-    CHECK(nonce_function_bip340(nonces[1], args[0], msglen, args[1], args[2], args[3], algolen, args[4]) == 1);
+    CHECK(nonce_function_bip340(ctx, nonces[1], args[0], msglen, args[1], args[2], args[3], algolen, args[4]) == 1);
     CHECK(secp256k1_memcmp_var(nonces[0], nonces[1], 32) != 0);
 }
 
@@ -37,6 +37,8 @@ static void run_nonce_function_bip340_tests(void) {
     unsigned char aux_rand[32];
     unsigned char *args[5];
     int i;
+
+    const secp256k1_context* ctx = &secp256k1_context_static_;
 
     /* Check that hash initialized by
      * secp256k1_nonce_function_bip340_sha256_tagged has the expected
@@ -63,22 +65,22 @@ static void run_nonce_function_bip340_tests(void) {
     args[3] = algo;
     args[4] = aux_rand;
     for (i = 0; i < COUNT; i++) {
-        nonce_function_bip340_bitflip(args, 0, 32, msglen, algolen);
-        nonce_function_bip340_bitflip(args, 1, 32, msglen, algolen);
-        nonce_function_bip340_bitflip(args, 2, 32, msglen, algolen);
+        nonce_function_bip340_bitflip(ctx, args, 0, 32, msglen, algolen);
+        nonce_function_bip340_bitflip(ctx, args, 1, 32, msglen, algolen);
+        nonce_function_bip340_bitflip(ctx, args, 2, 32, msglen, algolen);
         /* Flip algo special case "BIP0340/nonce" */
-        nonce_function_bip340_bitflip(args, 3, algolen, msglen, algolen);
+        nonce_function_bip340_bitflip(ctx, args, 3, algolen, msglen, algolen);
         /* Flip algo again */
-        nonce_function_bip340_bitflip(args, 3, algolen, msglen, algolen);
-        nonce_function_bip340_bitflip(args, 4, 32, msglen, algolen);
+        nonce_function_bip340_bitflip(ctx, args, 3, algolen, msglen, algolen);
+        nonce_function_bip340_bitflip(ctx, args, 4, 32, msglen, algolen);
     }
 
     /* NULL algo is disallowed */
-    CHECK(nonce_function_bip340(nonce, msg, msglen, key, pk, NULL, 0, NULL) == 0);
-    CHECK(nonce_function_bip340(nonce, msg, msglen, key, pk, algo, algolen, NULL) == 1);
+    CHECK(nonce_function_bip340(ctx, nonce, msg, msglen, key, pk, NULL, 0, NULL) == 0);
+    CHECK(nonce_function_bip340(ctx, nonce, msg, msglen, key, pk, algo, algolen, NULL) == 1);
     /* Other algo is fine */
     testrand_bytes_test(algo, algolen);
-    CHECK(nonce_function_bip340(nonce, msg, msglen, key, pk, algo, algolen, NULL) == 1);
+    CHECK(nonce_function_bip340(ctx, nonce, msg, msglen, key, pk, algo, algolen, NULL) == 1);
 
     for (i = 0; i < COUNT; i++) {
         unsigned char nonce2[32];
@@ -87,20 +89,20 @@ static void run_nonce_function_bip340_tests(void) {
         size_t algolen_tmp;
 
         /* Different msglen gives different nonce */
-        CHECK(nonce_function_bip340(nonce2, msg, msglen_tmp, key, pk, algo, algolen, NULL) == 1);
+        CHECK(nonce_function_bip340(ctx, nonce2, msg, msglen_tmp, key, pk, algo, algolen, NULL) == 1);
         CHECK(secp256k1_memcmp_var(nonce, nonce2, 32) != 0);
 
         /* Different algolen gives different nonce */
         offset = testrand_int(algolen - 1);
         algolen_tmp = (algolen + offset) % algolen;
-        CHECK(nonce_function_bip340(nonce2, msg, msglen, key, pk, algo, algolen_tmp, NULL) == 1);
+        CHECK(nonce_function_bip340(ctx, nonce2, msg, msglen, key, pk, algo, algolen_tmp, NULL) == 1);
         CHECK(secp256k1_memcmp_var(nonce, nonce2, 32) != 0);
     }
 
     /* NULL aux_rand argument is allowed, and identical to passing all zero aux_rand. */
     memset(aux_rand, 0, 32);
-    CHECK(nonce_function_bip340(nonce_z, msg, msglen, key, pk, algo, algolen, &aux_rand) == 1);
-    CHECK(nonce_function_bip340(nonce, msg, msglen, key, pk, algo, algolen, NULL) == 1);
+    CHECK(nonce_function_bip340(ctx, nonce_z, msg, msglen, key, pk, algo, algolen, &aux_rand) == 1);
+    CHECK(nonce_function_bip340(ctx, nonce, msg, msglen, key, pk, algo, algolen, NULL) == 1);
     CHECK(secp256k1_memcmp_var(nonce_z, nonce, 32) == 0);
 }
 
@@ -763,7 +765,8 @@ static void test_schnorrsig_bip_vectors(void) {
 }
 
 /* Nonce function that returns constant 0 */
-static int nonce_function_failing(unsigned char *nonce32, const unsigned char *msg, size_t msglen, const unsigned char *key32, const unsigned char *xonly_pk32, const unsigned char *algo, size_t algolen, void *data) {
+static int nonce_function_failing(const secp256k1_context* ctx, unsigned char *nonce32, const unsigned char *msg, size_t msglen, const unsigned char *key32, const unsigned char *xonly_pk32, const unsigned char *algo, size_t algolen, void *data) {
+    (void) ctx;
     (void) msg;
     (void) msglen;
     (void) key32;
@@ -776,7 +779,8 @@ static int nonce_function_failing(unsigned char *nonce32, const unsigned char *m
 }
 
 /* Nonce function that sets nonce to 0 */
-static int nonce_function_0(unsigned char *nonce32, const unsigned char *msg, size_t msglen, const unsigned char *key32, const unsigned char *xonly_pk32, const unsigned char *algo, size_t algolen, void *data) {
+static int nonce_function_0(const secp256k1_context* ctx, unsigned char *nonce32, const unsigned char *msg, size_t msglen, const unsigned char *key32, const unsigned char *xonly_pk32, const unsigned char *algo, size_t algolen, void *data) {
+    (void) ctx;
     (void) msg;
     (void) msglen;
     (void) key32;
@@ -790,7 +794,8 @@ static int nonce_function_0(unsigned char *nonce32, const unsigned char *msg, si
 }
 
 /* Nonce function that sets nonce to 0xFF...0xFF */
-static int nonce_function_overflowing(unsigned char *nonce32, const unsigned char *msg, size_t msglen, const unsigned char *key32, const unsigned char *xonly_pk32, const unsigned char *algo, size_t algolen, void *data) {
+static int nonce_function_overflowing(const secp256k1_context* ctx, unsigned char *nonce32, const unsigned char *msg, size_t msglen, const unsigned char *key32, const unsigned char *xonly_pk32, const unsigned char *algo, size_t algolen, void *data) {
+    (void) ctx;
     (void) msg;
     (void) msglen;
     (void) key32;

@@ -56,6 +56,10 @@
     } \
 } while(0)
 
+struct secp256k1_hash_context {
+    sha256_transform_callback fn_sha256_transform;
+};
+
 /* Note that whenever you change the context struct, you must also change the
  * context_eq function. */
 struct secp256k1_context_struct {
@@ -63,13 +67,16 @@ struct secp256k1_context_struct {
     secp256k1_callback illegal_callback;
     secp256k1_callback error_callback;
     int declassify;
+
+    struct secp256k1_hash_context hash_context;
 };
 
 static const secp256k1_context secp256k1_context_static_ = {
     { 0 },
     { secp256k1_default_illegal_callback_fn, 0 },
     { secp256k1_default_error_callback_fn, 0 },
-    0
+    0,
+    { 0 }
 };
 const secp256k1_context * const secp256k1_context_static = &secp256k1_context_static_;
 const secp256k1_context * const secp256k1_context_no_precomp = &secp256k1_context_static_;
@@ -218,6 +225,11 @@ void secp256k1_context_set_error_callback(secp256k1_context* ctx, void (*fun)(co
     }
     ctx->error_callback.fn = fun;
     ctx->error_callback.data = data;
+}
+
+void secp256k1_context_set_sha256_transform_callback(secp256k1_context* ctx, void (*sha256_transform_callback)(uint32_t* s, const unsigned char* chunk, size_t blocks)) {
+    ARG_CHECK_VOID(ctx != NULL);
+    ctx->hash_context.fn_sha256_transform = sha256_transform_callback;
 }
 
 static secp256k1_scratch_space* secp256k1_scratch_space_create(const secp256k1_context* ctx, size_t max_size) {
