@@ -640,7 +640,7 @@ int secp256k1_musig_nonce_process(const secp256k1_context* ctx, secp256k1_musig_
     }
 
     secp256k1_musig_nonce_process_internal(&session_i.fin_nonce_parity, fin_nonce, &session_i.noncecoef, aggnonce_pts, agg_pk32, msg32);
-    secp256k1_schnorrsig_challenge(&session_i.challenge, fin_nonce, msg32, 32, agg_pk32);
+    secp256k1_schnorrsig_challenge(ctx, &session_i.challenge, fin_nonce, msg32, 32, agg_pk32);
 
     /* If there is a tweak then set `challenge` times `tweak` to the `s`-part.*/
     secp256k1_scalar_set_int(&session_i.s_part, 0);

@@ -38,10 +38,11 @@ static void secp256k1_sha256_initialize(secp256k1_sha256 *hash) {
     hash->s[6] = 0x1f83d9abul;
     hash->s[7] = 0x5be0cd19ul;
     hash->bytes = 0;
+    hash->fn_transform = NULL;
 }
 
 /** Perform one SHA-256 transformation, processing 16 big endian 32-bit words. */
-static void secp256k1_sha256_transform(uint32_t* s, const unsigned char* buf) {
+static void secp256k1_sha256_transform_impl(uint32_t* s, const unsigned char* buf) {
     uint32_t a = s[0], b = s[1], c = s[2], d = s[3], e = s[4], f = s[5], g = s[6], h = s[7];
     uint32_t w0, w1, w2, w3, w4, w5, w6, w7, w8, w9, w10, w11, w12, w13, w14, w15;
 
@@ -123,17 +124,23 @@ static void secp256k1_sha256_transform(uint32_t* s, const unsigned char* buf) {
     s[7] += h;
 }
 
+static void secp256k1_sha256_transform(uint32_t* s, const unsigned char* buf, size_t n) {
+    while (n--) secp256k1_sha256_transform_impl(s, buf);
+}
+
 static void secp256k1_sha256_write(secp256k1_sha256 *hash, const unsigned char *data, size_t len) {
+    sha256_transform_callback fn_transform;
     size_t bufsize = hash->bytes & 0x3F;
     hash->bytes += len;
     VERIFY_CHECK(hash->bytes >= len);
+    fn_transform = hash->fn_transform != NULL ? hash->fn_transform : secp256k1_sha256_transform;
     while (len >= 64 - bufsize) {
         /* Fill the buffer, and process it. */
         size_t chunk_len = 64 - bufsize;
         memcpy(hash->buf + bufsize, data, chunk_len);
         data += chunk_len;
         len -= chunk_len;
-        secp256k1_sha256_transform(hash->s, hash->buf);
+        fn_transform(hash->s, hash->buf, 1);
         bufsize = 0;
     }
     if (len) {
@@ -158,11 +165,54 @@ static void secp256k1_sha256_finalize(secp256k1_sha256 *hash, unsigned char *out
     }
 }
 
+static int secp256k1_sha256_check_transform(sha256_transform_callback fn_transform) {
+    secp256k1_sha256 sha256;
+    unsigned char out[2][32];
+
+    /* Four messages of different sizes: 1, 24, 64 and 81 bytes */
+    unsigned char* msgs[4];
+    size_t lens[4];
+    unsigned char msg_0 = 0;
+    unsigned char msg_1[24] = "secp256k1_verif_round_i";
+    unsigned char msg_2[64] = "For this test, this 63-byte string will be used as input data i";
+    unsigned char msg_3[81] = "Genesis: The Times 03/Jan/2009 Chancellor on brink of second bailout for banks i";
+    msgs[0] = &msg_0;  lens[0] = sizeof(msg_0);
+    msgs[1] = msg_1;   lens[1] = sizeof(msg_1);
+    msgs[2] = msg_2;   lens[2] = sizeof(msg_2);
+    msgs[3] = msg_3;   lens[3] = sizeof(msg_3);
+
+    /* Compare hashes between built-in transform vs the one provided by the user */
+    {
+        unsigned char i, j, k;
+        sha256_transform_callback funcs[2];
+        funcs[0] = secp256k1_sha256_transform; /* Built-in */
+        funcs[1] = fn_transform;               /* User provided */
+
+        for (i = 0; i < 10; i++) {
+            msg_0 = i;
+            msg_1[23] = i;
+            msg_2[63] = i;
+            msg_3[80] = i;
+            for (j = 0; j < 4; j++) {
+                for (k = 0; k < 2; k++) {
+                    secp256k1_sha256_initialize(&sha256);
+                    sha256.fn_transform = funcs[k];
+                    secp256k1_sha256_write(&sha256, msgs[j], lens[j]);
+                    secp256k1_sha256_finalize(&sha256, out[k]);
+                }
+                if (memcmp(out[0], out[1], 32) != 0) return 0;
+            }
+        }
+    }
+    return 1;
+}
+
 /* Initializes a sha256 struct and writes the 64 byte string
  * SHA256(tag)||SHA256(tag) into it. */
-static void secp256k1_sha256_initialize_tagged(secp256k1_sha256 *hash, const unsigned char *tag, size_t taglen) {
+static void secp256k1_sha256_initialize_tagged(secp256k1_sha256 *hash, const unsigned char *tag, size_t taglen, sha256_transform_callback fn_sha256_transform) {
     unsigned char buf[32];
     secp256k1_sha256_initialize(hash);
+    hash->fn_transform = fn_sha256_transform ? fn_sha256_transform : secp256k1_sha256_transform;
     secp256k1_sha256_write(hash, tag, taglen);
     secp256k1_sha256_finalize(hash, buf);
 
