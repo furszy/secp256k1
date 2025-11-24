@@ -56,6 +56,10 @@
     } \
 } while(0)
 
+struct secp256k1_hash_context {
+    sha256_transform_callback fn_sha256_transform;
+};
+
 /* Note that whenever you change the context struct, you must also change the
  * context_eq function. */
 struct secp256k1_context_struct {
@@ -63,13 +67,16 @@ struct secp256k1_context_struct {
     secp256k1_callback illegal_callback;
     secp256k1_callback error_callback;
     int declassify;
+
+    struct secp256k1_hash_context hash_context;
 };
 
 static const secp256k1_context secp256k1_context_static_ = {
     { 0 },
     { secp256k1_default_illegal_callback_fn, 0 },
     { secp256k1_default_error_callback_fn, 0 },
-    0
+    0,
+    { 0 }
 };
 const secp256k1_context * const secp256k1_context_static = &secp256k1_context_static_;
 const secp256k1_context * const secp256k1_context_no_precomp = &secp256k1_context_static_;
@@ -218,6 +225,12 @@ void secp256k1_context_set_error_callback(secp256k1_context* ctx, void (*fun)(co
     }
     ctx->error_callback.fn = fun;
     ctx->error_callback.data = data;
+}
+
+void secp256k1_context_set_sha256_transform_callback(secp256k1_context *ctx, void (*sha256_transform_callback_)(uint32_t *state, const unsigned char *msg, size_t rounds)) {
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK_VOID(secp256k1_sha256_check_transform(sha256_transform_callback_));
+    ctx->hash_context.fn_sha256_transform = sha256_transform_callback_;
 }
 
 static secp256k1_scratch_space* secp256k1_scratch_space_create(const secp256k1_context* ctx, size_t max_size) {
@@ -468,7 +481,7 @@ static SECP256K1_INLINE void buffer_append(unsigned char *buf, unsigned int *off
     *offset += len;
 }
 
-static int nonce_function_rfc6979(unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32, const unsigned char *algo16, void *data, unsigned int counter) {
+static int nonce_function_rfc6979(const secp256k1_context *ctx, unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32, const unsigned char *algo16, void *data, unsigned int counter) {
    unsigned char keydata[112];
    unsigned int offset = 0;
    secp256k1_rfc6979_hmac_sha256 rng;
@@ -493,9 +506,9 @@ static int nonce_function_rfc6979(unsigned char *nonce32, const unsigned char *m
    if (algo16 != NULL) {
        buffer_append(keydata, &offset, algo16, 16);
    }
-   secp256k1_rfc6979_hmac_sha256_initialize(&rng, keydata, offset);
+   secp256k1_rfc6979_hmac_sha256_initialize(&rng, keydata, offset, ctx->hash_context.fn_sha256_transform);
    for (i = 0; i <= counter; i++) {
-       secp256k1_rfc6979_hmac_sha256_generate(&rng, nonce32, 32);
+       secp256k1_rfc6979_hmac_sha256_generate(&rng, nonce32, 32, ctx->hash_context.fn_sha256_transform);
    }
    secp256k1_rfc6979_hmac_sha256_finalize(&rng);
 
@@ -529,7 +542,7 @@ static int secp256k1_ecdsa_sign_inner(const secp256k1_context* ctx, secp256k1_sc
     secp256k1_scalar_set_b32(&msg, msg32, NULL);
     while (1) {
         int is_nonce_valid;
-        ret = !!noncefp(nonce32, msg32, seckey, NULL, (void*)noncedata, count);
+        ret = !!noncefp(ctx, nonce32, msg32, seckey, NULL, (void*)noncedata, count);
         if (!ret) {
             break;
         }
@@ -787,7 +800,7 @@ int secp256k1_tagged_sha256(const secp256k1_context* ctx, unsigned char *hash32,
     ARG_CHECK(tag != NULL);
     ARG_CHECK(msg != NULL);
 
-    secp256k1_sha256_initialize_tagged(&sha, tag, taglen);
+    secp256k1_sha256_initialize_tagged(&sha, tag, taglen, ctx->hash_context.fn_sha256_transform);
     secp256k1_sha256_write(&sha, msg, msglen);
     secp256k1_sha256_finalize(&sha, hash32);
     secp256k1_sha256_clear(&sha);

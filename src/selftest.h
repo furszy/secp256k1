@@ -19,7 +19,8 @@ static int secp256k1_selftest_sha256(void) {
     };
     unsigned char out[32];
     secp256k1_sha256 hasher;
-    secp256k1_sha256_initialize(&hasher);
+    /* TODO: Provide context to run self-test on custom transform */
+    secp256k1_sha256_initialize(&hasher, /*fn_transform=*/NULL);
     secp256k1_sha256_write(&hasher, (const unsigned char*)input63, 63);
     secp256k1_sha256_finalize(&hasher, out);
     return secp256k1_memcmp_var(out, output32, 32) == 0;
