@@ -7,6 +7,26 @@ set_property(TARGET secp256k1 PROPERTY PUBLIC_HEADER
 
 # Processing must be done in a topological sorting of the dependency graph
 # (dependent module first).
+if(SECP256K1_ENABLE_MODULE_SHA)
+    set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER
+                 ${PROJECT_SOURCE_DIR}/include/secp256k1_sha.h)
+
+    if(SECP256K1_EXTERNAL_SHA256_PATH)
+        # External implementation provided
+        add_compile_definitions(SECP256K1_EXTERNAL_SHA256=1)
+        if(NOT SECP256K1_EXTERNAL_SHA256_PATH)
+            message(FATAL_ERROR
+                "SECP256K1_EXTERNAL_SHA256 is ON but no path was provided via SECP256K1_EXTERNAL_SHA256_PATH")
+        endif()
+        add_compile_definitions(SECP256K1_EXTERNAL_SHA256_HEADER="${SECP256K1_EXTERNAL_SHA256_PATH}")
+    else()
+        # No external override. Compile internal implementation
+        target_sources(secp256k1 PRIVATE
+            ${PROJECT_SOURCE_DIR}/src/modules/sha/main_impl.h
+        )
+    endif()
+endif()
+
 if(SECP256K1_ENABLE_MODULE_ELLSWIFT)
   add_compile_definitions(ENABLE_MODULE_ELLSWIFT=1)
   set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_ellswift.h)
