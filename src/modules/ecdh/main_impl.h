@@ -10,18 +10,23 @@
 #include "../../../include/secp256k1_ecdh.h"
 #include "../../ecmult_const_impl.h"
 
-static int ecdh_hash_function_sha256(unsigned char *output, const unsigned char *x32, const unsigned char *y32, void *data) {
+static int ecdh_hash_function_sha256_impl(const secp256k1_context *ctx, unsigned char *output, const unsigned char *x32, const unsigned char *y32, void *data) {
     unsigned char version = (y32[31] & 0x01) | 0x02;
     secp256k1_sha256 sha;
+    secp256k1_fn_sha256_transform fn_sha256_transform = ctx ? ctx->hash_context.fn_sha256_transform : NULL;
     (void)data;
 
-    secp256k1_sha256_initialize(&sha);
+    secp256k1_sha256_initialize(&sha, fn_sha256_transform);
     secp256k1_sha256_write(&sha, &version, 1);
     secp256k1_sha256_write(&sha, x32, 32);
     secp256k1_sha256_finalize(&sha, output);
     secp256k1_sha256_clear(&sha);
 
     return 1;
+}
+
+static int ecdh_hash_function_sha256(unsigned char *output, const unsigned char *x32, const unsigned char *y32, void *data) {
+    return ecdh_hash_function_sha256_impl(/*ctx=*/NULL, output, x32, y32, data);
 }
 
 const secp256k1_ecdh_hash_function secp256k1_ecdh_hash_function_sha256 = ecdh_hash_function_sha256;
@@ -41,10 +46,6 @@ int secp256k1_ecdh(const secp256k1_context* ctx, unsigned char *output, const se
     ARG_CHECK(point != NULL);
     ARG_CHECK(scalar != NULL);
 
-    if (hashfp == NULL) {
-        hashfp = secp256k1_ecdh_hash_function_default;
-    }
-
     secp256k1_pubkey_load(ctx, &pt, point);
     secp256k1_scalar_set_b32(&s, scalar, &overflow);
 
@@ -60,7 +61,16 @@ int secp256k1_ecdh(const secp256k1_context* ctx, unsigned char *output, const se
     secp256k1_fe_get_b32(x, &pt.x);
     secp256k1_fe_get_b32(y, &pt.y);
 
-    ret = hashfp(output, x, y, data);
+    if (hashfp == NULL) {
+        if (ctx->hash_context.fn_sha256_transform != NULL) {
+            /* Use context-aware function when custom SHA256 is provided */
+            ret = ecdh_hash_function_sha256_impl(ctx, output, x, y, data);
+        } else {
+            ret = secp256k1_ecdh_hash_function_default(output, x, y, data);;
+        }
+    } else {
+        ret = hashfp(output, x, y, data);
+    }
 
     secp256k1_memclear_explicit(x, sizeof(x));
     secp256k1_memclear_explicit(y, sizeof(y));
