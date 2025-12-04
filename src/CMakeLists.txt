@@ -7,43 +7,44 @@ set_property(TARGET secp256k1 PROPERTY PUBLIC_HEADER
 
 # Processing must be done in a topological sorting of the dependency graph
 # (dependent module first).
-if(SECP256K1_ENABLE_MODULE_ELLSWIFT)
-  add_compile_definitions(ENABLE_MODULE_ELLSWIFT=1)
-  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_ellswift.h)
-endif()
 
-if(SECP256K1_ENABLE_MODULE_MUSIG)
-  if(DEFINED SECP256K1_ENABLE_MODULE_SCHNORRSIG AND NOT SECP256K1_ENABLE_MODULE_SCHNORRSIG)
-    message(FATAL_ERROR "Module dependency error: You have disabled the schnorrsig module explicitly, but it is required by the musig module.")
+set(SECP256K1_MODULES
+      ELLSWIFT
+      MUSIG
+      SCHNORRSIG
+      EXTRAKEYS
+      RECOVERY
+      ECDH
+)
+
+# Dependencies: MODULE -> DEP
+set(MUSIG_DEP            SCHNORRSIG)
+set(SCHNORRSIG_DEP       EXTRAKEYS)
+
+foreach(MOD ${SECP256K1_MODULES})
+  set(FLAG "SECP256K1_ENABLE_MODULE_${MOD}")
+  if(DEFINED ${FLAG} AND ${${FLAG}})
+    add_compile_definitions("ENABLE_MODULE_${MOD}=1")
+
+    # Resolve and verify header
+    string(TOLOWER ${MOD} MOD_LC) # Lowercase header file name
+    set(HEADER "${PROJECT_SOURCE_DIR}/include/secp256k1_${MOD_LC}.h")
+    if(NOT EXISTS ${HEADER})
+      message(FATAL_ERROR "Required header file not found: ${HEADER}")
+    endif()
+    set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${HEADER})
+
+    # Resolve dependency if present
+    set(DEP "${${MOD}_DEP}")
+    if(DEP)
+      set(DEP_FLAG "SECP256K1_ENABLE_MODULE_${DEP}")
+      if(DEFINED ${DEP_FLAG} AND NOT ${${DEP_FLAG}})
+        message(FATAL_ERROR "Dependency error: ${FLAG} requires ${DEP_FLAG}, but it was disabled.")
+      endif()
+      set(${DEP_FLAG} ON) # Auto-enable dependency
+    endif()
   endif()
-  set(SECP256K1_ENABLE_MODULE_SCHNORRSIG ON)
-  add_compile_definitions(ENABLE_MODULE_MUSIG=1)
-  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_musig.h)
-endif()
-
-if(SECP256K1_ENABLE_MODULE_SCHNORRSIG)
-  if(DEFINED SECP256K1_ENABLE_MODULE_EXTRAKEYS AND NOT SECP256K1_ENABLE_MODULE_EXTRAKEYS)
-    message(FATAL_ERROR "Module dependency error: You have disabled the extrakeys module explicitly, but it is required by the schnorrsig module.")
-  endif()
-  set(SECP256K1_ENABLE_MODULE_EXTRAKEYS ON)
-  add_compile_definitions(ENABLE_MODULE_SCHNORRSIG=1)
-  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_schnorrsig.h)
-endif()
-
-if(SECP256K1_ENABLE_MODULE_EXTRAKEYS)
-  add_compile_definitions(ENABLE_MODULE_EXTRAKEYS=1)
-  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_extrakeys.h)
-endif()
-
-if(SECP256K1_ENABLE_MODULE_RECOVERY)
-  add_compile_definitions(ENABLE_MODULE_RECOVERY=1)
-  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_recovery.h)
-endif()
-
-if(SECP256K1_ENABLE_MODULE_ECDH)
-  add_compile_definitions(ENABLE_MODULE_ECDH=1)
-  set_property(TARGET secp256k1 APPEND PROPERTY PUBLIC_HEADER ${PROJECT_SOURCE_DIR}/include/secp256k1_ecdh.h)
-endif()
+endforeach()
 
 add_library(secp256k1_precomputed OBJECT EXCLUDE_FROM_ALL
   precomputed_ecmult.c
