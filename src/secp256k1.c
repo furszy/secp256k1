@@ -493,15 +493,37 @@ static SECP256K1_INLINE void buffer_append(unsigned char *buf, unsigned int *off
     *offset += len;
 }
 
-static int nonce_function_rfc6979(const secp256k1_context *ctx, unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32, const unsigned char *algo16, void *data, unsigned int counter) {
+/* Identifier for new nonce struct data */
+const unsigned char NONCE_EXT_ID[5] = "data";
+
+typedef struct {
+    unsigned char id[5];
+    const secp256k1_context *ctx;
+    void *data;
+} nonce_ext_dat;
+
+static int nonce_function_rfc6979(unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32, const unsigned char *algo16, void *in_data, unsigned int counter) {
    unsigned char keydata[112];
    unsigned int offset = 0;
    secp256k1_rfc6979_hmac_sha256 rng;
    unsigned int i;
+   void *data;
+   nonce_ext_dat* nonce_data;
+   sha256_transform_callback fn_sha256_transform = NULL;
    secp256k1_scalar msg;
    unsigned char msgmod32[32];
    secp256k1_scalar_set_b32(&msg, msg32, NULL);
    secp256k1_scalar_get_b32(msgmod32, &msg);
+
+    /* Try casting data to new format */
+    nonce_data = (nonce_ext_dat*) in_data;
+    if (nonce_data && memcmp(nonce_data->id, NONCE_EXT_ID, 4) == 0) {
+        fn_sha256_transform = nonce_data->ctx->hash_context.fn_sha256_transform;
+        data = nonce_data->data;
+    } else {
+        data = in_data; /* Can't parse; fallback to previous format */
+    }
+
    /* We feed a byte array to the PRNG as input, consisting of:
     * - the private key (32 bytes) and reduced message (32 bytes), see RFC 6979 3.2d.
     * - optionally 32 extra bytes of data, see RFC 6979 3.6 Additional Data.
@@ -518,9 +540,9 @@ static int nonce_function_rfc6979(const secp256k1_context *ctx, unsigned char *n
    if (algo16 != NULL) {
        buffer_append(keydata, &offset, algo16, 16);
    }
-   secp256k1_rfc6979_hmac_sha256_initialize(&rng, keydata, offset, ctx->hash_context.fn_sha256_transform);
+   secp256k1_rfc6979_hmac_sha256_initialize(&rng, keydata, offset, fn_sha256_transform);
    for (i = 0; i <= counter; i++) {
-       secp256k1_rfc6979_hmac_sha256_generate(&rng, nonce32, 32, ctx->hash_context.fn_sha256_transform);
+       secp256k1_rfc6979_hmac_sha256_generate(&rng, nonce32, 32, fn_sha256_transform);
    }
    secp256k1_rfc6979_hmac_sha256_finalize(&rng);
 
@@ -532,10 +554,12 @@ static int nonce_function_rfc6979(const secp256k1_context *ctx, unsigned char *n
 const secp256k1_nonce_function secp256k1_nonce_function_rfc6979 = nonce_function_rfc6979;
 const secp256k1_nonce_function secp256k1_nonce_function_default = nonce_function_rfc6979;
 
-static int secp256k1_ecdsa_sign_inner(const secp256k1_context* ctx, secp256k1_scalar* r, secp256k1_scalar* s, int* recid, const unsigned char *msg32, const unsigned char *seckey, secp256k1_nonce_function noncefp, const void* noncedata) {
+static int secp256k1_ecdsa_sign_inner(const secp256k1_context* ctx, secp256k1_scalar* r, secp256k1_scalar* s, int* recid, const unsigned char *msg32, const unsigned char *seckey, secp256k1_nonce_function noncefp, const void* in_noncedata) {
     secp256k1_scalar sec, non, msg;
     int ret = 0;
     int is_sec_valid;
+    nonce_ext_dat nonce_data;
+    void* noncedata;
     unsigned char nonce32[32];
     unsigned int count = 0;
     /* Default initialization here is important so we won't pass uninit values to the cmov in the end */
@@ -544,8 +568,16 @@ static int secp256k1_ecdsa_sign_inner(const secp256k1_context* ctx, secp256k1_sc
     if (recid) {
         *recid = 0;
     }
+
     if (noncefp == NULL) {
+        /* Wrap 'in_noncedata' into new format */
+        memcpy(nonce_data.id, NONCE_EXT_ID, 4);
+        nonce_data.ctx = ctx;
+        nonce_data.data = (void*) in_noncedata;
+        noncedata = (void*) &nonce_data;
         noncefp = secp256k1_nonce_function_default;
+    } else {
+        noncedata = (void*) in_noncedata;
     }
 
     /* Fail if the secret key is invalid. */
@@ -554,7 +586,7 @@ static int secp256k1_ecdsa_sign_inner(const secp256k1_context* ctx, secp256k1_sc
     secp256k1_scalar_set_b32(&msg, msg32, NULL);
     while (1) {
         int is_nonce_valid;
-        ret = !!noncefp(ctx, nonce32, msg32, seckey, NULL, (void*)noncedata, count);
+        ret = !!noncefp(nonce32, msg32, seckey, NULL, noncedata, count);
         if (!ret) {
             break;
         }

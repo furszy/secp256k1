@@ -6387,8 +6387,7 @@ static void run_ecdsa_sign_verify(void) {
 }
 
 /** Dummy nonce generation function that just uses a precomputed nonce, and fails if it is not accepted. Use only for testing. */
-static int precomputed_nonce_function(const secp256k1_context *ctx, unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32, const unsigned char *algo16, void *data, unsigned int counter) {
-    (void)ctx;
+static int precomputed_nonce_function(unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32, const unsigned char *algo16, void *data, unsigned int counter) {
     (void)msg32;
     (void)key32;
     (void)algo16;
@@ -6396,15 +6395,15 @@ static int precomputed_nonce_function(const secp256k1_context *ctx, unsigned cha
     return (counter == 0);
 }
 
-static int nonce_function_test_fail(const secp256k1_context *ctx, unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32, const unsigned char *algo16, void *data, unsigned int counter) {
+static int nonce_function_test_fail(unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32, const unsigned char *algo16, void *data, unsigned int counter) {
    /* Dummy nonce generator that has a fatal error on the first counter value. */
    if (counter == 0) {
        return 0;
    }
-   return nonce_function_rfc6979(ctx, nonce32, msg32, key32, algo16, data, counter - 1);
+   return nonce_function_rfc6979(nonce32, msg32, key32, algo16, data, counter - 1);
 }
 
-static int nonce_function_test_retry(const secp256k1_context *ctx, unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32, const unsigned char *algo16, void *data, unsigned int counter) {
+static int nonce_function_test_retry(unsigned char *nonce32, const unsigned char *msg32, const unsigned char *key32, const unsigned char *algo16, void *data, unsigned int counter) {
    /* Dummy nonce generator that produces unacceptable nonces for the first several counter values. */
    if (counter < 3) {
        memset(nonce32, counter==0 ? 0 : 255, 32);
@@ -6425,7 +6424,7 @@ static int nonce_function_test_retry(const secp256k1_context *ctx, unsigned char
    if (counter > 5) {
        return 0;
    }
-   return nonce_function_rfc6979(ctx, nonce32, msg32, key32, algo16, data, counter - 5);
+   return nonce_function_rfc6979(nonce32, msg32, key32, algo16, data, counter - 5);
 }
 
 static int is_empty_signature(const secp256k1_ecdsa_signature *sig) {
@@ -7405,7 +7404,6 @@ static void test_ecdsa_edge_cases(void) {
 
     {
         /* Check that optional nonce arguments do not have equivalent effect. */
-        const secp256k1_context* ctx = secp256k1_context_static;
         const unsigned char zeros[32] = {0};
         unsigned char nonce[32];
         unsigned char nonce2[32];
@@ -7415,13 +7413,13 @@ static void test_ecdsa_edge_cases(void) {
         SECP256K1_CHECKMEM_UNDEFINE(nonce2,32);
         SECP256K1_CHECKMEM_UNDEFINE(nonce3,32);
         SECP256K1_CHECKMEM_UNDEFINE(nonce4,32);
-        CHECK(nonce_function_rfc6979(ctx, nonce, zeros, zeros, NULL, NULL, 0) == 1);
+        CHECK(nonce_function_rfc6979(nonce, zeros, zeros, NULL, NULL, 0) == 1);
         SECP256K1_CHECKMEM_CHECK(nonce,32);
-        CHECK(nonce_function_rfc6979(ctx, nonce2, zeros, zeros, zeros, NULL, 0) == 1);
+        CHECK(nonce_function_rfc6979(nonce2, zeros, zeros, zeros, NULL, 0) == 1);
         SECP256K1_CHECKMEM_CHECK(nonce2,32);
-        CHECK(nonce_function_rfc6979(ctx, nonce3, zeros, zeros, NULL, (void *)zeros, 0) == 1);
+        CHECK(nonce_function_rfc6979(nonce3, zeros, zeros, NULL, (void *)zeros, 0) == 1);
         SECP256K1_CHECKMEM_CHECK(nonce3,32);
-        CHECK(nonce_function_rfc6979(ctx, nonce4, zeros, zeros, zeros, (void *)zeros, 0) == 1);
+        CHECK(nonce_function_rfc6979(nonce4, zeros, zeros, zeros, (void *)zeros, 0) == 1);
         SECP256K1_CHECKMEM_CHECK(nonce4,32);
         CHECK(secp256k1_memcmp_var(nonce, nonce2, 32) != 0);
         CHECK(secp256k1_memcmp_var(nonce, nonce3, 32) != 0);

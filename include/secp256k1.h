@@ -93,7 +93,6 @@ typedef struct secp256k1_ecdsa_signature {
  * the message, the algorithm, the key and the attempt.
  */
 typedef int (*secp256k1_nonce_function)(
-    const secp256k1_context *ctx,
     unsigned char *nonce32,
     const unsigned char *msg32,
     const unsigned char *key32,
