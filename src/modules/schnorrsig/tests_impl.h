@@ -813,39 +813,40 @@ static void test_schnorrsig_sign_internal(void) {
     unsigned char zeros64[64] = { 0 };
     secp256k1_schnorrsig_extraparams extraparams = SECP256K1_SCHNORRSIG_EXTRAPARAMS_INIT;
     unsigned char aux_rand[32];
+    secp256k1_context *ctx = CTX;
 
     testrand256(sk);
     testrand256(aux_rand);
-    CHECK(secp256k1_keypair_create(CTX, &keypair, sk));
-    CHECK(secp256k1_keypair_xonly_pub(CTX, &pk, NULL, &keypair));
-    CHECK(secp256k1_schnorrsig_sign32(CTX, sig, msg, &keypair, NULL) == 1);
-    CHECK(secp256k1_schnorrsig_verify(CTX, sig, msg, sizeof(msg), &pk));
+    CHECK(secp256k1_keypair_create(ctx, &keypair, sk));
+    CHECK(secp256k1_keypair_xonly_pub(ctx, &pk, NULL, &keypair));
+    CHECK(secp256k1_schnorrsig_sign32(ctx, sig, msg, &keypair, NULL) == 1);
+    CHECK(secp256k1_schnorrsig_verify(ctx, sig, msg, sizeof(msg), &pk));
     /* Check that deprecated alias gives the same result */
-    CHECK(secp256k1_schnorrsig_sign(CTX, sig2, msg, &keypair, NULL) == 1);
+    CHECK(secp256k1_schnorrsig_sign(ctx, sig2, msg, &keypair, NULL) == 1);
     CHECK(secp256k1_memcmp_var(sig, sig2, sizeof(sig)) == 0);
 
     /* Test different nonce functions */
-    CHECK(secp256k1_schnorrsig_sign_custom(CTX, sig, msg, sizeof(msg), &keypair, &extraparams) == 1);
-    CHECK(secp256k1_schnorrsig_verify(CTX, sig, msg, sizeof(msg), &pk));
+    CHECK(secp256k1_schnorrsig_sign_custom(ctx, sig, msg, sizeof(msg), &keypair, &extraparams) == 1);
+    CHECK(secp256k1_schnorrsig_verify(ctx, sig, msg, sizeof(msg), &pk));
     memset(sig, 1, sizeof(sig));
     extraparams.noncefp = nonce_function_failing;
-    CHECK(secp256k1_schnorrsig_sign_custom(CTX, sig, msg, sizeof(msg), &keypair, &extraparams) == 0);
+    CHECK(secp256k1_schnorrsig_sign_custom(ctx, sig, msg, sizeof(msg), &keypair, &extraparams) == 0);
     CHECK(secp256k1_memcmp_var(sig, zeros64, sizeof(sig)) == 0);
     memset(&sig, 1, sizeof(sig));
     extraparams.noncefp = nonce_function_0;
-    CHECK(secp256k1_schnorrsig_sign_custom(CTX, sig, msg, sizeof(msg), &keypair, &extraparams) == 0);
+    CHECK(secp256k1_schnorrsig_sign_custom(ctx, sig, msg, sizeof(msg), &keypair, &extraparams) == 0);
     CHECK(secp256k1_memcmp_var(sig, zeros64, sizeof(sig)) == 0);
     memset(&sig, 1, sizeof(sig));
     extraparams.noncefp = nonce_function_overflowing;
-    CHECK(secp256k1_schnorrsig_sign_custom(CTX, sig, msg, sizeof(msg), &keypair, &extraparams) == 1);
-    CHECK(secp256k1_schnorrsig_verify(CTX, sig, msg, sizeof(msg), &pk));
+    CHECK(secp256k1_schnorrsig_sign_custom(ctx, sig, msg, sizeof(msg), &keypair, &extraparams) == 1);
+    CHECK(secp256k1_schnorrsig_verify(ctx, sig, msg, sizeof(msg), &pk));
 
     /* When using the default nonce function, schnorrsig_sign_custom produces
      * the same result as schnorrsig_sign with aux_rand = extraparams.ndata */
     extraparams.noncefp = NULL;
     extraparams.ndata = aux_rand;
-    CHECK(secp256k1_schnorrsig_sign_custom(CTX, sig, msg, sizeof(msg), &keypair, &extraparams) == 1);
-    CHECK(secp256k1_schnorrsig_sign32(CTX, sig2, msg, &keypair, extraparams.ndata) == 1);
+    CHECK(secp256k1_schnorrsig_sign_custom(ctx, sig, msg, sizeof(msg), &keypair, &extraparams) == 1);
+    CHECK(secp256k1_schnorrsig_sign32(ctx, sig2, msg, &keypair, extraparams.ndata) == 1);
     CHECK(secp256k1_memcmp_var(sig, sig2, sizeof(sig)) == 0);
 }
 
