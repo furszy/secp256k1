@@ -7071,6 +7071,7 @@ static void run_ecdsa_der_parse(void) {
 static void test_ecdsa_edge_cases(void) {
     int t;
     secp256k1_ecdsa_signature sig;
+    secp256k1_context* ctx = CTX;
 
     /* Test the case where ECDSA recomputes a point that is infinity. */
     {
@@ -7082,7 +7083,7 @@ static void test_ecdsa_edge_cases(void) {
         secp256k1_scalar_negate(&ss, &ss);
         secp256k1_scalar_inverse(&ss, &ss);
         secp256k1_scalar_set_int(&sr, 1);
-        secp256k1_ecmult_gen(&CTX->ecmult_gen_ctx, &keyj, &sr);
+        secp256k1_ecmult_gen(&ctx->ecmult_gen_ctx, &keyj, &sr);
         secp256k1_ge_set_gej(&key, &keyj);
         msg = ss;
         CHECK(secp256k1_ecdsa_sig_verify(&sr, &ss, &key, &msg) == 0);
@@ -7263,42 +7264,42 @@ static void test_ecdsa_edge_cases(void) {
             0xb8, 0x12, 0xe0, 0x0b, 0x81, 0x7a, 0x77, 0x62,
             0x65, 0xdf, 0xdd, 0x31, 0xb9, 0x3e, 0x29, 0xa9,
         };
-        CHECK(secp256k1_ecdsa_sign(CTX, &sig, msg, key, precomputed_nonce_function, nonce) == 0);
-        CHECK(secp256k1_ecdsa_sign(CTX, &sig, msg, key, precomputed_nonce_function, nonce2) == 0);
+        CHECK(secp256k1_ecdsa_sign(ctx, &sig, msg, key, precomputed_nonce_function, nonce) == 0);
+        CHECK(secp256k1_ecdsa_sign(ctx, &sig, msg, key, precomputed_nonce_function, nonce2) == 0);
         msg[31] = 0xaa;
-        CHECK(secp256k1_ecdsa_sign(CTX, &sig, msg, key, precomputed_nonce_function, nonce) == 1);
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_sign(CTX, NULL, msg, key, precomputed_nonce_function, nonce2));
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_sign(CTX, &sig, NULL, key, precomputed_nonce_function, nonce2));
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_sign(CTX, &sig, msg, NULL, precomputed_nonce_function, nonce2));
-        CHECK(secp256k1_ecdsa_sign(CTX, &sig, msg, key, precomputed_nonce_function, nonce2) == 1);
-        CHECK(secp256k1_ec_pubkey_create(CTX, &pubkey, key) == 1);
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_verify(CTX, NULL, msg, &pubkey));
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_verify(CTX, &sig, NULL, &pubkey));
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_verify(CTX, &sig, msg, NULL));
-        CHECK(secp256k1_ecdsa_verify(CTX, &sig, msg, &pubkey) == 1);
-        CHECK_ILLEGAL(CTX, secp256k1_ec_pubkey_create(CTX, &pubkey, NULL));
+        CHECK(secp256k1_ecdsa_sign(ctx, &sig, msg, key, precomputed_nonce_function, nonce) == 1);
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_sign(ctx, NULL, msg, key, precomputed_nonce_function, nonce2));
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_sign(ctx, &sig, NULL, key, precomputed_nonce_function, nonce2));
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_sign(ctx, &sig, msg, NULL, precomputed_nonce_function, nonce2));
+        CHECK(secp256k1_ecdsa_sign(ctx, &sig, msg, key, precomputed_nonce_function, nonce2) == 1);
+        CHECK(secp256k1_ec_pubkey_create(ctx, &pubkey, key) == 1);
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_verify(ctx, NULL, msg, &pubkey));
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_verify(ctx, &sig, NULL, &pubkey));
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_verify(ctx, &sig, msg, NULL));
+        CHECK(secp256k1_ecdsa_verify(ctx, &sig, msg, &pubkey) == 1);
+        CHECK_ILLEGAL(ctx, secp256k1_ec_pubkey_create(ctx, &pubkey, NULL));
         /* That pubkeyload fails via an ARGCHECK is a little odd but makes sense because pubkeys are an opaque data type. */
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_verify(CTX, &sig, msg, &pubkey));
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_verify(ctx, &sig, msg, &pubkey));
         siglen = 72;
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_signature_serialize_der(CTX, NULL, &siglen, &sig));
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_signature_serialize_der(CTX, signature, NULL, &sig));
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_signature_serialize_der(CTX, signature, &siglen, NULL));
-        CHECK(secp256k1_ecdsa_signature_serialize_der(CTX, signature, &siglen, &sig) == 1);
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_signature_parse_der(CTX, NULL, signature, siglen));
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_signature_parse_der(CTX, &sig, NULL, siglen));
-        CHECK(secp256k1_ecdsa_signature_parse_der(CTX, &sig, signature, siglen) == 1);
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_signature_serialize_der(ctx, NULL, &siglen, &sig));
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_signature_serialize_der(ctx, signature, NULL, &sig));
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_signature_serialize_der(ctx, signature, &siglen, NULL));
+        CHECK(secp256k1_ecdsa_signature_serialize_der(ctx, signature, &siglen, &sig) == 1);
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_signature_parse_der(ctx, NULL, signature, siglen));
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_signature_parse_der(ctx, &sig, NULL, siglen));
+        CHECK(secp256k1_ecdsa_signature_parse_der(ctx, &sig, signature, siglen) == 1);
         siglen = 10;
         /* Too little room for a signature does not fail via ARGCHECK. */
-        CHECK(secp256k1_ecdsa_signature_serialize_der(CTX, signature, &siglen, &sig) == 0);
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_signature_normalize(CTX, NULL, NULL));
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_signature_serialize_compact(CTX, NULL, &sig));
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_signature_serialize_compact(CTX, signature, NULL));
-        CHECK(secp256k1_ecdsa_signature_serialize_compact(CTX, signature, &sig) == 1);
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_signature_parse_compact(CTX, NULL, signature));
-        CHECK_ILLEGAL(CTX, secp256k1_ecdsa_signature_parse_compact(CTX, &sig, NULL));
-        CHECK(secp256k1_ecdsa_signature_parse_compact(CTX, &sig, signature) == 1);
+        CHECK(secp256k1_ecdsa_signature_serialize_der(ctx, signature, &siglen, &sig) == 0);
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_signature_normalize(ctx, NULL, NULL));
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_signature_serialize_compact(ctx, NULL, &sig));
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_signature_serialize_compact(ctx, signature, NULL));
+        CHECK(secp256k1_ecdsa_signature_serialize_compact(ctx, signature, &sig) == 1);
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_signature_parse_compact(ctx, NULL, signature));
+        CHECK_ILLEGAL(ctx, secp256k1_ecdsa_signature_parse_compact(ctx, &sig, NULL));
+        CHECK(secp256k1_ecdsa_signature_parse_compact(ctx, &sig, signature) == 1);
         memset(signature, 255, 64);
-        CHECK(secp256k1_ecdsa_signature_parse_compact(CTX, &sig, signature) == 0);
+        CHECK(secp256k1_ecdsa_signature_parse_compact(ctx, &sig, signature) == 0);
     }
 
     /* Nonce function corner cases. */
@@ -7315,33 +7316,33 @@ static void test_ecdsa_edge_cases(void) {
         msg[31] = 1;
         /* High key results in signature failure. */
         memset(key, 0xFF, 32);
-        CHECK(secp256k1_ecdsa_sign(CTX, &sig, msg, key, NULL, extra) == 0);
+        CHECK(secp256k1_ecdsa_sign(ctx, &sig, msg, key, NULL, extra) == 0);
         CHECK(is_empty_signature(&sig));
         /* Zero key results in signature failure. */
         memset(key, 0, 32);
-        CHECK(secp256k1_ecdsa_sign(CTX, &sig, msg, key, NULL, extra) == 0);
+        CHECK(secp256k1_ecdsa_sign(ctx, &sig, msg, key, NULL, extra) == 0);
         CHECK(is_empty_signature(&sig));
         /* Nonce function failure results in signature failure. */
         key[31] = 1;
-        CHECK(secp256k1_ecdsa_sign(CTX, &sig, msg, key, nonce_function_test_fail, extra) == 0);
+        CHECK(secp256k1_ecdsa_sign(ctx, &sig, msg, key, nonce_function_test_fail, extra) == 0);
         CHECK(is_empty_signature(&sig));
         /* The retry loop successfully makes its way to the first good value. */
-        CHECK(secp256k1_ecdsa_sign(CTX, &sig, msg, key, nonce_function_test_retry, extra) == 1);
+        CHECK(secp256k1_ecdsa_sign(ctx, &sig, msg, key, nonce_function_test_retry, extra) == 1);
         CHECK(!is_empty_signature(&sig));
-        CHECK(secp256k1_ecdsa_sign(CTX, &sig2, msg, key, nonce_function_rfc6979, extra) == 1);
+        CHECK(secp256k1_ecdsa_sign(ctx, &sig2, msg, key, nonce_function_rfc6979, extra) == 1);
         CHECK(!is_empty_signature(&sig2));
         CHECK(secp256k1_memcmp_var(&sig, &sig2, sizeof(sig)) == 0);
         /* The default nonce function is deterministic. */
-        CHECK(secp256k1_ecdsa_sign(CTX, &sig2, msg, key, NULL, extra) == 1);
+        CHECK(secp256k1_ecdsa_sign(ctx, &sig2, msg, key, NULL, extra) == 1);
         CHECK(!is_empty_signature(&sig2));
         CHECK(secp256k1_memcmp_var(&sig, &sig2, sizeof(sig)) == 0);
         /* The default nonce function changes output with different messages. */
         for(i = 0; i < 256; i++) {
             int j;
             msg[0] = i;
-            CHECK(secp256k1_ecdsa_sign(CTX, &sig2, msg, key, NULL, extra) == 1);
+            CHECK(secp256k1_ecdsa_sign(ctx, &sig2, msg, key, NULL, extra) == 1);
             CHECK(!is_empty_signature(&sig2));
-            secp256k1_ecdsa_signature_load(CTX, &sr[i], &ss, &sig2);
+            secp256k1_ecdsa_signature_load(ctx, &sr[i], &ss, &sig2);
             for (j = 0; j < i; j++) {
                 CHECK(!secp256k1_scalar_eq(&sr[i], &sr[j]));
             }
@@ -7352,9 +7353,9 @@ static void test_ecdsa_edge_cases(void) {
         for(i = 256; i < 512; i++) {
             int j;
             key[0] = i - 256;
-            CHECK(secp256k1_ecdsa_sign(CTX, &sig2, msg, key, NULL, extra) == 1);
+            CHECK(secp256k1_ecdsa_sign(ctx, &sig2, msg, key, NULL, extra) == 1);
             CHECK(!is_empty_signature(&sig2));
-            secp256k1_ecdsa_signature_load(CTX, &sr[i], &ss, &sig2);
+            secp256k1_ecdsa_signature_load(ctx, &sr[i], &ss, &sig2);
             for (j = 0; j < i; j++) {
                 CHECK(!secp256k1_scalar_eq(&sr[i], &sr[j]));
             }
@@ -7395,9 +7396,9 @@ static void test_ecdsa_edge_cases(void) {
         unsigned char privkey[300];
         const unsigned char *seckey = secp256k1_group_order_bytes;
         size_t outlen = 300;
-        CHECK(!ec_privkey_export_der(CTX, privkey, &outlen, seckey, 0));
+        CHECK(!ec_privkey_export_der(ctx, privkey, &outlen, seckey, 0));
         outlen = 300;
-        CHECK(!ec_privkey_export_der(CTX, privkey, &outlen, seckey, 1));
+        CHECK(!ec_privkey_export_der(ctx, privkey, &outlen, seckey, 1));
     }
 }
 
