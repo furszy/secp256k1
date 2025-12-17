@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+#include <stdint.h>
 
 /** Unless explicitly stated all pointer arguments must not be NULL.
  *
@@ -401,6 +402,29 @@ SECP256K1_API void secp256k1_context_set_error_callback(
     secp256k1_context *ctx,
     void (*fun)(const char *message, void *data),
     const void *data
+) SECP256K1_ARG_NONNULL(1);
+
+/**
+ * Set a callback function to override the internal SHA-256 transform.
+ *
+ * This installs a function to replace the built-in block-compression
+ * step used by the library's internal SHA-256 implementation.
+ * The provided callback must be functionally identical (bit-for-bit)
+ * to the default transform. Any deviation  will cause incorrect results
+ * and undefined behaviour.
+ *
+ * This API exists to support environments that wish to route the
+ * SHA-256 compression step through a hardware-accelerated or otherwise
+ * specialized implementation. It is not meant for modifying the
+ * semantics of SHA-256.
+ *
+ * Args: ctx:    pointer to a context object.
+ * In: callback: pointer to a function implementing the transform step.
+ *               (passing NULL restores the default implementation)
+ */
+SECP256K1_API void secp256k1_context_set_sha256_transform(
+        secp256k1_context *ctx,
+        void (*fn_sha256_transform)(uint32_t *state, const unsigned char *block, size_t rounds)
 ) SECP256K1_ARG_NONNULL(1);
 
 /** Parse a variable-length public key into the pubkey object.
