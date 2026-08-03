@@ -155,16 +155,19 @@ static int secp256k1_sha256_smoke_test(const secp256k1_sha256_compression_functi
         64, 128, 192, 256, 320, /* 1 to 5 blocks */
         384, 448, 512, 576      /* 6 to 9 blocks */
     };
-    unsigned char msg[577]; /* Longest message, plus 1 for the shifted start */
+    /* Longest message, plus 128 for the shifted start */
+    unsigned char msg[704];
+    /* Alignment classes */
+    static const size_t offsets[] = {0, 1, 2, 4, 8, 16, 32, 64, 128};
 
     /* Accumulated digest of every message, hashed with the built-in secp256k1_sha256_transform.
      * Note: To regenerate set 'ctx.fn_sha256_compression = secp256k1_sha256_transform' below
      * and print the sha_accum digest. */
     static const unsigned char accum_expected[32] = {
-        0x76, 0xA7, 0x7C, 0x95, 0xE0, 0x96, 0x0E, 0xE5,
-        0x21, 0xCE, 0xDC, 0x95, 0x81, 0x0B, 0xDD, 0xD1,
-        0x38, 0xCB, 0xB1, 0xA2, 0xED, 0xB7, 0x03, 0xF3,
-        0xD2, 0xAE, 0xB3, 0x3E, 0x82, 0x34, 0xB1, 0x14
+        0x5B, 0x79, 0x4D, 0x63, 0xB4, 0x2C, 0x2A, 0x20,
+        0x5E, 0x1E, 0x1E, 0xF7, 0x84, 0x0D, 0xA4, 0xDD,
+        0xCD, 0x0A, 0x20, 0xFF, 0x6D, 0xC0, 0xD7, 0xDC,
+        0x6D, 0x2D, 0x87, 0x52, 0xB8, 0x0E, 0x6A, 0xD5,
     };
     /* The purpose of this VERIFY_CHECK is to make anyone aware that they
      * should also change the size of msg_buf when changing the length of the
@@ -185,8 +188,9 @@ static int secp256k1_sha256_smoke_test(const secp256k1_sha256_compression_functi
 
     /* Pass pointers `msg` and `msg + 1` to compression to catch alignment issues,
     * secp256k1_sha256_write invokes compression directly on input >= 64 bytes */
-    for (i = 0; i < 2; i++) {
-        unsigned char *m = msg + i;
+    for (i = 0; i < ARRAY_SIZE(offsets); i++) {
+        size_t offset = offsets[i];
+        unsigned char *m = msg + offset;
         m[0] ^= 0xff; /* Changes the first byte, so every state after it changes too */
         for (j = 0; j < ARRAY_SIZE(msg_lens); j++) {
             secp256k1_sha256_initialize(&sha_msg);

@@ -517,6 +517,14 @@ static void sha256_transform_corrupt(uint32_t *s, const unsigned char *chunk, si
     s[0] ^= 1;
 }
 
+/* Wrong when input is 64-byte aligned, like a broken SIMD fast path. */
+static void sha256_transform_aligned_fail(uint32_t *s, const unsigned char *chunk, size_t blocks) {
+    int aligned = ((uintptr_t)chunk % 64) == 0;
+    secp256k1_sha256_transform(s, chunk, blocks);
+    if (aligned) s[0] ^= 1;
+}
+
+
 /* Wrong on any unaligned input. */
 static void sha256_transform_unaligned_fail(uint32_t *s, const unsigned char *chunk, size_t blocks) {
     int aligned = ((uintptr_t)chunk % 64) == 0;
@@ -530,6 +538,7 @@ static void run_sha256_compression_smoke_test_tests(void) {
     CHECK(secp256k1_sha256_smoke_test(sha256_transform_ivreset) == 0);
     CHECK(secp256k1_sha256_smoke_test(sha256_transform_batch4) == 0);
     CHECK(secp256k1_sha256_smoke_test(sha256_transform_corrupt) == 0);
+    CHECK(secp256k1_sha256_smoke_test(sha256_transform_aligned_fail) == 0);
     CHECK(secp256k1_sha256_smoke_test(sha256_transform_unaligned_fail) == 0);
     CHECK(secp256k1_sha256_smoke_test(good_sha256_compression) == 1);
 }
