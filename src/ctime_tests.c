@@ -36,6 +36,11 @@
 #include "../include/secp256k1_musig.h"
 #endif
 
+#ifdef ENABLE_MODULE_ICEBERG
+#include "../include/secp256k1_iceberg.h"
+#include "../include/secp256k1_iceberg_dealer.h"
+#endif
+
 #ifdef ENABLE_MODULE_ELLSWIFT
 #include "../include/secp256k1_ellswift.h"
 #endif
@@ -263,6 +268,119 @@ static void run_tests(secp256k1_context *ctx, unsigned char *key) {
         SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
         CHECK(ret == 1);
         ret = secp256k1_musig_partial_sign(ctx, &partial_sig, &secnonce, &keypair, &cache, &session);
+        SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
+        CHECK(ret == 1);
+    }
+#endif
+
+#ifdef ENABLE_MODULE_ICEBERG
+    {
+        /* A 3-of-5 group, dealt from `key` and taken as far as one signature
+         * share. Secret here is the dealer's root seed and everything the
+         * module derives from it: the per-subset seeds, the key share, and the
+         * two nonce shares. Not secret: participant indices, the group and
+         * threshold, every Lagrange weight, the commitments, the session label,
+         * and both nonce coefficients. */
+        enum { ICEBERG_N = 5, ICEBERG_T = 3, ICEBERG_MU = 2 * ICEBERG_T - 1 };
+        secp256k1_iceberg_share shares[ICEBERG_N];
+        secp256k1_iceberg_share *share_ptr[ICEBERG_N];
+        secp256k1_iceberg_share_cache share_cache;
+        secp256k1_iceberg_pubshare pubshares[ICEBERG_N];
+        const secp256k1_iceberg_pubshare *pubshare_ptr[ICEBERG_N];
+        secp256k1_iceberg_pubnonce nonces[ICEBERG_N];
+        const secp256k1_iceberg_pubnonce *nonce_ptr[ICEBERG_N];
+        secp256k1_iceberg_aggnonce iceberg_aggnonce;
+        secp256k1_iceberg_partial_sig iceberg_psig;
+        secp256k1_musig_pubnonce group_pubnonce, cosigner_pubnonce;
+        const secp256k1_musig_pubnonce *cosigner_ptr[1];
+        secp256k1_musig_secnonce cosigner_secnonce;
+        secp256k1_musig_aggnonce cosigner_aggnonce;
+        secp256k1_musig_keyagg_cache iceberg_cache;
+        secp256k1_pubkey group_pk, cosigner_pk;
+        const secp256k1_pubkey *iceberg_pk_ptr[2];
+        unsigned char share_bytes[SECP256K1_ICEBERG_SHARE_MAX_LEN];
+        unsigned char sid[32], cosigner_secrand[32];
+        size_t share_len;
+        int party;
+
+        for (party = 0; party < ICEBERG_N; party++) {
+            share_ptr[party] = &shares[party];
+            pubshare_ptr[party] = &pubshares[party];
+            nonce_ptr[party] = &nonces[party];
+        }
+        SECP256K1_CHECKMEM_DEFINE(key, 32);
+        /* The cosigner needs randomness distinct from the dealer's root seed;
+         * any perturbation of `key` will do. */
+        memcpy(cosigner_secrand, key, sizeof(cosigner_secrand));
+        cosigner_secrand[0] = cosigner_secrand[0] + 3;
+        CHECK(secp256k1_keypair_create(ctx, &keypair, key));
+        CHECK(secp256k1_keypair_pub(ctx, &cosigner_pk, &keypair));
+
+        SECP256K1_CHECKMEM_UNDEFINE(key, 32);
+        ret = secp256k1_iceberg_shares_gen(ctx, share_ptr, ICEBERG_N, ICEBERG_T, key);
+        SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
+        CHECK(ret == 1);
+
+        /* Storing and restoring a share moves seed material through a buffer,
+         * which is where a length or an offset computed from it would show. */
+        share_len = sizeof(share_bytes);
+        ret = secp256k1_iceberg_share_serialize(ctx, share_bytes, &share_len, &shares[0]);
+        SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
+        CHECK(ret == 1);
+        ret = secp256k1_iceberg_share_parse(ctx, &shares[0], share_bytes, share_len);
+        SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
+        CHECK(ret == 1);
+
+        ret = secp256k1_iceberg_share_cache_create(ctx, &share_cache, &shares[0]);
+        SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
+        CHECK(ret == 1);
+        /* The header says the cache holds no secret, and this is the line that
+         * makes that a result rather than a claim. Every byte of it must be
+         * defined: the weights come from the group size, the threshold and the
+         * participant index, all of which are public, and none of them from a
+         * seed. Declassifying is not the same test: it would say the value may be
+         * published, where this says nothing secret reached it. */
+        SECP256K1_CHECKMEM_CHECK(&share_cache, sizeof(share_cache));
+
+        for (party = 0; party < ICEBERG_N; party++) {
+            ret = secp256k1_iceberg_pubshare_gen(ctx, &pubshares[party], &shares[party],
+                                                 party == 0 ? &share_cache : NULL);
+            SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
+            CHECK(ret == 1);
+        }
+
+        /* A commitment is public, and so is everything built from one. */
+        SECP256K1_CHECKMEM_DEFINE(pubshares, sizeof(pubshares));
+        CHECK(secp256k1_iceberg_pubkey_agg(ctx, &group_pk, pubshare_ptr, ICEBERG_MU, ICEBERG_N, ICEBERG_T) == 1);
+
+        iceberg_pk_ptr[0] = &group_pk;
+        iceberg_pk_ptr[1] = &cosigner_pk;
+        CHECK(secp256k1_musig_pubkey_agg(ctx, NULL, &iceberg_cache, iceberg_pk_ptr, 2));
+        SECP256K1_CHECKMEM_DEFINE(msg, sizeof(msg));
+        SECP256K1_CHECKMEM_UNDEFINE(cosigner_secrand, sizeof(cosigner_secrand));
+        ret = secp256k1_musig_nonce_gen(ctx, &cosigner_secnonce, &cosigner_pubnonce,
+                                        cosigner_secrand, NULL, &cosigner_pk, msg,
+                                        &iceberg_cache, NULL);
+        SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
+        CHECK(ret == 1);
+        SECP256K1_CHECKMEM_DEFINE(&cosigner_pubnonce, sizeof(cosigner_pubnonce));
+        cosigner_ptr[0] = &cosigner_pubnonce;
+        CHECK(secp256k1_musig_nonce_agg(ctx, &cosigner_aggnonce, cosigner_ptr, 1));
+        memset(sid, 0x7e, sizeof(sid));  /* public: the label is the caller's to choose */
+
+        for (party = 0; party < ICEBERG_MU; party++) {
+            ret = secp256k1_iceberg_nonce_gen(ctx, &nonces[party], &shares[party],
+                                              party == 0 ? &share_cache : NULL, sid);
+            SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
+            CHECK(ret == 1);
+        }
+        SECP256K1_CHECKMEM_DEFINE(nonces, sizeof(nonces));
+        CHECK(secp256k1_iceberg_nonce_agg(ctx, &group_pubnonce, &iceberg_aggnonce,
+                                          nonce_ptr, ICEBERG_MU, ICEBERG_N, ICEBERG_T, &group_pk) == 1);
+
+        ret = secp256k1_iceberg_partial_sign(ctx, &iceberg_psig, &shares[0], &share_cache,
+                                             sid, nonce_ptr, ICEBERG_MU, &group_pk,
+                                             &iceberg_cache, msg, &cosigner_aggnonce);
         SECP256K1_CHECKMEM_DEFINE(&ret, sizeof(ret));
         CHECK(ret == 1);
     }

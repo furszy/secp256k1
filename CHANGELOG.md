@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+#### Added
+ - Experimental module `iceberg`, implementing a threshold scheme that lets a group of parties stand in for a single MuSig2 participant. The group produces an ordinary MuSig2 public nonce and partial signature, so cosigners need no changes. Neither the scheme nor the implementation has been reviewed outside the project; see `doc/iceberg.md`.
+
 ## [0.7.1] - 2026-01-26
 
 #### Changed

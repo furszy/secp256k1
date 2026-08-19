@@ -51,6 +51,7 @@ option(SECP256K1_ENABLE_MODULE_RECOVERY "Enable ECDSA pubkey recovery module." O
 option(SECP256K1_ENABLE_MODULE_EXTRAKEYS "Enable extrakeys module." ON)
 option(SECP256K1_ENABLE_MODULE_SCHNORRSIG "Enable schnorrsig module." ON)
 option(SECP256K1_ENABLE_MODULE_MUSIG "Enable musig module." ON)
+option(SECP256K1_ENABLE_MODULE_ICEBERG "Enable Iceberg threshold-MuSig module (experimental)." ON)
 option(SECP256K1_ENABLE_MODULE_ELLSWIFT "Enable ElligatorSwift module." ON)
 option(SECP256K1_ENABLE_MODULE_SILENTPAYMENTS "Enable Silent Payments module." ON)
 
@@ -289,6 +290,7 @@ message("  ECDSA pubkey recovery ............... ${SECP256K1_ENABLE_MODULE_RECOV
 message("  extrakeys ........................... ${SECP256K1_ENABLE_MODULE_EXTRAKEYS}")
 message("  schnorrsig .......................... ${SECP256K1_ENABLE_MODULE_SCHNORRSIG}")
 message("  musig ............................... ${SECP256K1_ENABLE_MODULE_MUSIG}")
+message("  iceberg (experimental) .............. ${SECP256K1_ENABLE_MODULE_ICEBERG}")
 message("  ElligatorSwift ...................... ${SECP256K1_ENABLE_MODULE_ELLSWIFT}")
 message("  Silent Payments ..................... ${SECP256K1_ENABLE_MODULE_SILENTPAYMENTS}")
 message("Parameters:")

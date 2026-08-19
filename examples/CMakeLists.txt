@@ -35,3 +35,7 @@ endif()
 if(SECP256K1_ENABLE_MODULE_SILENTPAYMENTS)
   add_example(silentpayments)
 endif()
+
+if(SECP256K1_ENABLE_MODULE_ICEBERG)
+  add_example(iceberg)
+endif()

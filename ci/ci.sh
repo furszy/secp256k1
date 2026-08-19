@@ -13,7 +13,7 @@ print_environment() {
     # does not rely on bash.
     for var in WERROR_CFLAGS MAKEFLAGS BUILD \
             ECMULTWINDOW ECMULTGENKB ASM WIDEMUL WITH_VALGRIND EXTRAFLAGS \
-            EXPERIMENTAL ECDH RECOVERY EXTRAKEYS MUSIG SCHNORRSIG ELLSWIFT SILENTPAYMENTS \
+            EXPERIMENTAL ECDH RECOVERY EXTRAKEYS MUSIG SCHNORRSIG ELLSWIFT SILENTPAYMENTS ICEBERG \
             SECP256K1_TEST_ITERS BENCH SECP256K1_BENCH_ITERS CTIMETESTS SYMBOL_CHECK \
             EXAMPLES \
             HOST WRAPPER_CMD \
@@ -65,6 +65,7 @@ fi
     --enable-module-schnorrsig="$SCHNORRSIG" \
     --enable-module-musig="$MUSIG" \
     --enable-module-silentpayments="$SILENTPAYMENTS" \
+    --enable-module-iceberg="$ICEBERG" \
     --enable-examples="$EXAMPLES" \
     --enable-ctime-tests="$CTIMETESTS" \
     --with-valgrind="$WITH_VALGRIND" \
@@ -124,6 +125,7 @@ then
         $EXEC ./bench_ecmult
         $EXEC ./bench_internal
         $EXEC ./bench
+        if [ "$ICEBERG" = "yes" ]; then $EXEC ./bench_iceberg; fi
     } >> bench.log 2>&1
 fi
 

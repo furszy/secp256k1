@@ -185,6 +185,10 @@ AC_ARG_ENABLE(module_schnorrsig,
     AS_HELP_STRING([--enable-module-schnorrsig],[enable schnorrsig module [default=yes]]), [],
     [SECP_SET_DEFAULT([enable_module_schnorrsig], [yes], [yes])])
 
+AC_ARG_ENABLE(module_iceberg,
+    AS_HELP_STRING([--enable-module-iceberg],[enable Iceberg threshold-MuSig module (experimental) [default=yes]]), [],
+    [SECP_SET_DEFAULT([enable_module_iceberg], [yes], [yes])])
+
 AC_ARG_ENABLE(module_musig,
     AS_HELP_STRING([--enable-module-musig],[enable MuSig2 module [default=yes]]), [],
     [SECP_SET_DEFAULT([enable_module_musig], [yes], [yes])])
@@ -415,6 +419,14 @@ if test x"$enable_module_ellswift" = x"yes"; then
   SECP_CONFIG_DEFINES="$SECP_CONFIG_DEFINES -DENABLE_MODULE_ELLSWIFT=1"
 fi
 
+if test x"$enable_module_iceberg" = x"yes"; then
+  if test x"$enable_module_musig" = x"no"; then
+    AC_MSG_ERROR([Module dependency error: You have disabled the musig module explicitly, but it is required by the iceberg module.])
+  fi
+  enable_module_musig=yes
+  SECP_CONFIG_DEFINES="$SECP_CONFIG_DEFINES -DENABLE_MODULE_ICEBERG=1"
+fi
+
 if test x"$enable_module_musig" = x"yes"; then
   if test x"$enable_module_schnorrsig" = x"no"; then
     AC_MSG_ERROR([Module dependency error: You have disabled the schnorrsig module explicitly, but it is required by the musig module.])
@@ -483,6 +495,7 @@ AM_CONDITIONAL([ENABLE_MODULE_RECOVERY], [test x"$enable_module_recovery" = x"ye
 AM_CONDITIONAL([ENABLE_MODULE_EXTRAKEYS], [test x"$enable_module_extrakeys" = x"yes"])
 AM_CONDITIONAL([ENABLE_MODULE_SCHNORRSIG], [test x"$enable_module_schnorrsig" = x"yes"])
 AM_CONDITIONAL([ENABLE_MODULE_MUSIG], [test x"$enable_module_musig" = x"yes"])
+AM_CONDITIONAL([ENABLE_MODULE_ICEBERG], [test x"$enable_module_iceberg" = x"yes"])
 AM_CONDITIONAL([ENABLE_MODULE_ELLSWIFT], [test x"$enable_module_ellswift" = x"yes"])
 AM_CONDITIONAL([ENABLE_MODULE_SILENTPAYMENTS], [test x"$enable_module_silentpayments" = x"yes"])
 AM_CONDITIONAL([USE_EXTERNAL_ASM], [test x"$enable_external_asm" = x"yes"])
@@ -508,6 +521,7 @@ echo "  module recovery         = $enable_module_recovery"
 echo "  module extrakeys        = $enable_module_extrakeys"
 echo "  module schnorrsig       = $enable_module_schnorrsig"
 echo "  module musig            = $enable_module_musig"
+echo "  module iceberg          = $enable_module_iceberg"
 echo "  module ellswift         = $enable_module_ellswift"
 echo "  module silentpayments   = $enable_module_silentpayments"
 echo

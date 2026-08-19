@@ -116,6 +116,12 @@ bench_internal_CPPFLAGS = $(SECP_CONFIG_DEFINES)
 bench_ecmult_SOURCES = src/bench_ecmult.c
 bench_ecmult_LDADD = $(COMMON_LIB) $(PRECOMPUTED_LIB)
 bench_ecmult_CPPFLAGS = $(SECP_CONFIG_DEFINES)
+if ENABLE_MODULE_ICEBERG
+noinst_PROGRAMS += bench_iceberg
+bench_iceberg_SOURCES = src/bench_iceberg.c
+bench_iceberg_LDADD = $(COMMON_LIB) $(PRECOMPUTED_LIB)
+bench_iceberg_CPPFLAGS = $(SECP_CONFIG_DEFINES)
+endif
 endif
 
 TESTS =
@@ -221,6 +227,17 @@ silentpayments_example_LDFLAGS += -lbcrypt
 endif
 TESTS += silentpayments_example
 endif
+if ENABLE_MODULE_ICEBERG
+noinst_PROGRAMS += iceberg_example
+iceberg_example_SOURCES = examples/iceberg.c
+iceberg_example_CPPFLAGS = -I$(top_srcdir)/include -DSECP256K1_STATIC
+iceberg_example_LDADD = libsecp256k1.la
+iceberg_example_LDFLAGS = -static
+if BUILD_WINDOWS
+iceberg_example_LDFLAGS += -lbcrypt
+endif
+TESTS += iceberg_example
+endif
 endif
 
 ### Precomputed tables
@@ -296,7 +313,7 @@ maintainer-clean-local: clean-testvectors
 ### Additional files to distribute
 EXTRA_DIST = autogen.sh CHANGELOG.md SECURITY.md
 EXTRA_DIST += doc/release-process.md doc/safegcd_implementation.md
-EXTRA_DIST += doc/ellswift.md doc/musig.md
+EXTRA_DIST += doc/ellswift.md doc/musig.md doc/iceberg.md
 EXTRA_DIST += examples/EXAMPLES_COPYING
 EXTRA_DIST += sage/gen_exhaustive_groups.sage
 EXTRA_DIST += sage/gen_split_lambda_constants.sage
@@ -330,6 +347,10 @@ endif
 
 if ENABLE_MODULE_MUSIG
 include src/modules/musig/Makefile.am.include
+endif
+
+if ENABLE_MODULE_ICEBERG
+include src/modules/iceberg/Makefile.am.include
 endif
 
 if ENABLE_MODULE_ELLSWIFT

@@ -1,6 +1,7 @@
 bench
 bench_ecmult
 bench_internal
+bench_iceberg
 noverify_tests
 tests
 exhaustive_tests
@@ -13,6 +14,7 @@ schnorr_example
 ellswift_example
 musig_example
 silentpayments_example
+iceberg_example
 *.exe
 *.so
 *.a

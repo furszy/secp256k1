@@ -1,0 +1,16 @@
+include_HEADERS += include/secp256k1_iceberg.h
+# In the tree so tests, benchmarks and the example can deal shares; not
+# installed, because a trusted dealer is not part of what this library offers.
+noinst_HEADERS += include/secp256k1_iceberg_dealer.h
+noinst_HEADERS += src/modules/iceberg/main_impl.h
+noinst_HEADERS += src/modules/iceberg/bench_impl.h
+noinst_HEADERS += src/modules/iceberg/scalar_poly.h
+noinst_HEADERS += src/modules/iceberg/scalar_poly_impl.h
+noinst_HEADERS += src/modules/iceberg/rss.h
+noinst_HEADERS += src/modules/iceberg/rss_impl.h
+noinst_HEADERS += src/modules/iceberg/vpss.h
+noinst_HEADERS += src/modules/iceberg/vpss_impl.h
+noinst_HEADERS += src/modules/iceberg/keygen_impl.h
+noinst_HEADERS += src/modules/iceberg/session_impl.h
+noinst_HEADERS += src/modules/iceberg/tests_impl.h
+noinst_HEADERS += src/modules/iceberg/vectors.h
